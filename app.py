@@ -94,6 +94,13 @@ def load_all_summaries(_reader, config_type: str, runs: list):
     return summaries
 
 
+CONFIG_DESCRIPTIONS = {
+    'fixed': 'Fixed ₹1,000 risk per trade | 3-year backtest (2023-2025)',
+    'relative': '1% capital risk per trade (₹5K for ₹5L) | 3-year backtest (2023-2025)',
+    '1year': 'Fixed ₹1,000 risk per trade | 1-year backtest (2025 only)'
+}
+
+
 def fmt_inr(value: float) -> str:
     if value >= 0:
         return f"₹{value:,.2f}"
@@ -470,6 +477,8 @@ def render_compare_tab(reader, config_types: list, date_from=None, date_to=None)
             agg = config_data[ct]
             with cols[i]:
                 st.markdown(f"### {ct}")
+                if ct in CONFIG_DESCRIPTIONS:
+                    st.caption(CONFIG_DESCRIPTIONS[ct])
                 st.metric("Net PnL", fmt_inr(agg['net_pnl']))
                 st.metric("Gross PnL", fmt_inr(agg['gross_pnl']))
                 st.metric("Trades", agg['total_trades'])
@@ -548,6 +557,10 @@ def main():
             return
 
         selected_config = st.selectbox("📁 Config Type", config_types)
+
+        # Show config description
+        if selected_config in CONFIG_DESCRIPTIONS:
+            st.caption(f"ℹ️ {CONFIG_DESCRIPTIONS[selected_config]}")
 
         # Load all runs for selected config
         with st.spinner("Loading runs..."):
