@@ -369,6 +369,43 @@ def render_compare_tab(reader, config_types: list, date_from=None, date_to=None)
         st.info("Select at least 2 configs to compare")
         return
 
+    # Get all available dates across all selected configs
+    all_dates = []
+    for ct in selected_configs:
+        runs = load_runs(reader, ct)
+        for run in runs:
+            ts = run.get('timestamp')
+            if ts and ts != 'Unknown':
+                try:
+                    all_dates.append(pd.to_datetime(ts).date())
+                except:
+                    pass
+
+    # Date range selector for comparison
+    if all_dates:
+        col1, col2 = st.columns(2)
+        with col1:
+            compare_date_from = st.date_input(
+                "Compare From",
+                value=min(all_dates),
+                min_value=min(all_dates),
+                max_value=max(all_dates),
+                key="compare_date_from"
+            )
+        with col2:
+            compare_date_to = st.date_input(
+                "Compare To",
+                value=max(all_dates),
+                min_value=min(all_dates),
+                max_value=max(all_dates),
+                key="compare_date_to"
+            )
+    else:
+        compare_date_from = date_from
+        compare_date_to = date_to
+
+    st.divider()
+
     # Load data for each config with date filtering
     config_data = {}
     daily_comparison = []
@@ -376,15 +413,15 @@ def render_compare_tab(reader, config_types: list, date_from=None, date_to=None)
     for ct in selected_configs:
         runs = load_runs(reader, ct)
 
-        # Filter by date range if provided
-        if date_from and date_to:
+        # Filter by date range
+        if compare_date_from and compare_date_to:
             filtered_runs = []
             for run in runs:
                 ts = run.get('timestamp')
                 if ts and ts != 'Unknown':
                     try:
                         run_date = pd.to_datetime(ts).date()
-                        if date_from <= run_date <= date_to:
+                        if compare_date_from <= run_date <= compare_date_to:
                             filtered_runs.append(run)
                     except:
                         filtered_runs.append(run)
