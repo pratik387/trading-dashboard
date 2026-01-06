@@ -46,6 +46,13 @@ st.markdown("""
     [data-testid="stMetricLabel"] {
         font-size: 0.9rem;
     }
+    /* Fix date picker calendar - ensure header with month/year is visible */
+    [data-baseweb="popover"] {
+        overflow: visible !important;
+    }
+    [data-baseweb="calendar"] {
+        padding-top: 10px !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
