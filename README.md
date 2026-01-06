@@ -1,1 +1,1 @@
-# trade-intel-analyzer
+# trading-dashboard
