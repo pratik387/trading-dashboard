@@ -16,9 +16,19 @@ class OCIDataReader:
     """
     Reads trading data directly from OCI Object Storage.
     No local storage required - all data streamed in memory.
+
+    Bucket structure:
+        paper-trading-logs/
+        ├── fixed/
+        │   └── paper_20260101_084724/
+        │       ├── analytics.jsonl
+        │       ├── events.jsonl
+        │       └── ...
+        ├── relative/
+        └── 1year/
     """
 
-    def __init__(self, bucket_name: str = 'backtest-results'):
+    def __init__(self, bucket_name: str = 'paper-trading-logs'):
         """
         Initialize OCI client.
 
@@ -53,16 +63,38 @@ class OCIDataReader:
 
         self.namespace = self.os_client.get_namespace().data
 
-    def list_runs(self, limit: int = 50) -> List[Dict]:
+    def list_config_types(self) -> List[str]:
         """
-        List all available runs in the bucket.
+        List all config types (top-level folders) in the bucket.
 
         Returns:
-            List of dicts with run_id, date_range, days, description
+            List of config type names like ['fixed', 'relative', '1year']
         """
         response = self.os_client.list_objects(
             namespace_name=self.namespace,
             bucket_name=self.bucket_name,
+            delimiter='/',
+            limit=100
+        )
+
+        prefixes = response.data.prefixes or []
+        return [p.rstrip('/') for p in prefixes]
+
+    def list_runs(self, config_type: str = 'fixed', limit: int = 50) -> List[Dict]:
+        """
+        List all available runs for a config type.
+
+        Args:
+            config_type: One of 'fixed', 'relative', '1year'
+            limit: Max number of runs to return
+
+        Returns:
+            List of dicts with run_id, config_type, timestamp info
+        """
+        response = self.os_client.list_objects(
+            namespace_name=self.namespace,
+            bucket_name=self.bucket_name,
+            prefix=f"{config_type}/",
             delimiter='/',
             limit=1000
         )
@@ -71,61 +103,45 @@ class OCIDataReader:
         runs = []
 
         for prefix in prefixes:
-            run_id = prefix.rstrip('/')
-            metadata = self._get_run_metadata(run_id)
+            # Extract run_id from prefix like "fixed/paper_20260101_084724/"
+            run_id = prefix.rstrip('/').split('/')[-1]
+
+            # Parse timestamp from run_id (e.g., paper_20260101_084724)
+            timestamp_str = None
+            if run_id.startswith('paper_'):
+                try:
+                    ts_part = run_id.replace('paper_', '')
+                    timestamp_str = datetime.strptime(ts_part, '%Y%m%d_%H%M%S').isoformat()
+                except:
+                    pass
+
+            # Try to get performance.json for summary stats
+            performance = self._get_performance(config_type, run_id)
+
             runs.append({
                 'run_id': run_id,
-                'submitted_at': metadata.get('submitted_at', 'Unknown'),
-                'start_date': metadata.get('start_date', 'Unknown'),
-                'end_date': metadata.get('end_date', 'Unknown'),
-                'days': metadata.get('total_days', 0),
-                'description': metadata.get('description', '')
+                'config_type': config_type,
+                'timestamp': timestamp_str or 'Unknown',
+                'total_pnl': performance.get('total_pnl', 0),
+                'total_trades': performance.get('total_trades', 0),
+                'win_rate': performance.get('win_rate', 0)
             })
 
         # Sort by run_id descending (most recent first)
         runs.sort(key=lambda x: x['run_id'], reverse=True)
         return runs[:limit]
 
-    def _get_run_metadata(self, run_id: str) -> Dict:
-        """Get metadata for a specific run"""
+    def _get_performance(self, config_type: str, run_id: str) -> Dict:
+        """Get performance.json for a specific run"""
         try:
             obj = self.os_client.get_object(
                 namespace_name=self.namespace,
                 bucket_name=self.bucket_name,
-                object_name=f"{run_id}/metadata.json"
+                object_name=f"{config_type}/{run_id}/performance.json"
             )
             return json.loads(obj.data.content.decode('utf-8'))
         except:
             return {}
-
-    def list_sessions(self, run_id: str) -> List[str]:
-        """
-        List all session dates for a run.
-
-        Returns:
-            List of date strings like ['2023-12-01', '2023-12-04', ...]
-        """
-        response = self.os_client.list_objects(
-            namespace_name=self.namespace,
-            bucket_name=self.bucket_name,
-            prefix=f"{run_id}/",
-            delimiter='/'
-        )
-
-        prefixes = response.data.prefixes or []
-        sessions = []
-
-        for prefix in prefixes:
-            # Extract date from prefix like "run_id/2023-12-01/"
-            parts = prefix.rstrip('/').split('/')
-            if len(parts) >= 2:
-                date_part = parts[-1]
-                # Validate it looks like a date
-                if len(date_part) == 10 and date_part[4] == '-':
-                    sessions.append(date_part)
-
-        sessions.sort(reverse=True)  # Most recent first
-        return sessions
 
     def _read_object_content(self, object_name: str) -> Optional[str]:
         """Read object content as string (streamed, not saved to disk)"""
@@ -150,48 +166,123 @@ class OCIDataReader:
                     except json.JSONDecodeError:
                         continue
 
-    def get_analytics(self, run_id: str, session_date: str) -> List[Dict]:
+    def _get_object_path(self, config_type: str, run_id: str, filename: str) -> str:
+        """Build the full object path"""
+        return f"{config_type}/{run_id}/{filename}"
+
+    def get_analytics(self, config_type: str, run_id: str) -> List[Dict]:
         """
-        Get analytics (trade exits with PnL) for a session.
+        Get analytics (trade exits with PnL) for a run.
 
         Returns:
             List of exit events with pnl, reason, etc.
         """
-        object_name = f"{run_id}/{session_date}/analytics.jsonl"
+        object_name = self._get_object_path(config_type, run_id, "analytics.jsonl")
         return list(self._stream_jsonl(object_name))
 
-    def get_events(self, run_id: str, session_date: str) -> List[Dict]:
+    def get_events(self, config_type: str, run_id: str) -> List[Dict]:
         """
-        Get all events (DECISION, TRIGGER, EXIT) for a session.
+        Get all events (DECISION, TRIGGER, EXIT) for a run.
 
         Returns:
             List of trade lifecycle events
         """
-        object_name = f"{run_id}/{session_date}/events.jsonl"
+        object_name = self._get_object_path(config_type, run_id, "events.jsonl")
         return list(self._stream_jsonl(object_name))
 
-    def get_decisions(self, run_id: str, session_date: str) -> List[Dict]:
+    def get_decisions(self, config_type: str, run_id: str) -> List[Dict]:
         """Get decision accept/reject log"""
-        object_name = f"{run_id}/{session_date}/events_decisions.jsonl"
+        object_name = self._get_object_path(config_type, run_id, "events_decisions.jsonl")
         return list(self._stream_jsonl(object_name))
 
-    def get_daily_summary(self, run_id: str, session_date: str) -> Dict:
+    def get_planning(self, config_type: str, run_id: str) -> List[Dict]:
+        """Get planning data"""
+        object_name = self._get_object_path(config_type, run_id, "planning.jsonl")
+        return list(self._stream_jsonl(object_name))
+
+    def get_ranking(self, config_type: str, run_id: str) -> List[Dict]:
+        """Get ranking data"""
+        object_name = self._get_object_path(config_type, run_id, "ranking.jsonl")
+        return list(self._stream_jsonl(object_name))
+
+    def get_scanning(self, config_type: str, run_id: str) -> List[Dict]:
+        """Get scanning data"""
+        object_name = self._get_object_path(config_type, run_id, "scanning.jsonl")
+        return list(self._stream_jsonl(object_name))
+
+    def get_screening(self, config_type: str, run_id: str) -> List[Dict]:
+        """Get screening data"""
+        object_name = self._get_object_path(config_type, run_id, "screening.jsonl")
+        return list(self._stream_jsonl(object_name))
+
+    def get_agent_log(self, config_type: str, run_id: str) -> Optional[str]:
+        """Get raw agent log content"""
+        object_name = self._get_object_path(config_type, run_id, "agent.log")
+        return self._read_object_content(object_name)
+
+    def get_trade_logs(self, config_type: str, run_id: str) -> Optional[str]:
+        """Get raw trade logs content"""
+        object_name = self._get_object_path(config_type, run_id, "trade_logs.log")
+        return self._read_object_content(object_name)
+
+    def get_performance(self, config_type: str, run_id: str) -> Dict:
+        """Get performance summary"""
+        return self._get_performance(config_type, run_id)
+
+    def get_run_summary(self, config_type: str, run_id: str) -> Dict:
         """
-        Get summary metrics for a single trading day.
+        Get summary metrics for a run.
+
+        First tries performance.json (pre-computed, fast).
+        Falls back to computing from analytics.jsonl if needed.
 
         Returns:
             Dict with total_pnl, trades, win_rate, setup_breakdown, etc.
         """
-        analytics = self.get_analytics(run_id, session_date)
+        # Try performance.json first (pre-computed)
+        perf = self._get_performance(config_type, run_id)
+        if perf and 'summary' in perf:
+            summary = perf['summary']
+            trades_list = perf.get('trades', [])
 
-        # Extract unique trades (final exits only)
+            # Group by setup from trades list
+            by_setup = {}
+            for t in trades_list:
+                setup = t.get('setup', 'unknown')
+                if setup not in by_setup:
+                    by_setup[setup] = {'pnl': 0, 'count': 0, 'wins': 0}
+                by_setup[setup]['pnl'] += t.get('pnl', 0)
+                by_setup[setup]['count'] += 1
+                if t.get('pnl', 0) > 0:
+                    by_setup[setup]['wins'] += 1
+
+            return {
+                'run_id': run_id,
+                'config_type': config_type,
+                'session_id': perf.get('session_id'),
+                'total_pnl': summary.get('total_pnl', 0),
+                'total_trades': summary.get('completed_trades', 0),
+                'winners': summary.get('wins', 0),
+                'losers': summary.get('losses', 0),
+                'win_rate': summary.get('win_rate', 0) * 100,  # Convert to percentage
+                'execution_rate': summary.get('execution_rate', 0) * 100,
+                'total_decisions': summary.get('total_decisions', 0),
+                'avg_slippage_bps': perf.get('execution', {}).get('avg_slippage_bps', 0),
+                'total_fees': perf.get('execution', {}).get('total_fees', 0),
+                'by_setup': by_setup,
+                'trades': trades_list
+            }
+
+        # Fallback: compute from analytics.jsonl
+        analytics = self.get_analytics(config_type, run_id)
         trades = [a for a in analytics if a.get('is_final_exit')]
 
         if not trades:
             return {
-                'date': session_date,
+                'run_id': run_id,
+                'config_type': config_type,
                 'total_pnl': 0,
-                'trades': 0,
+                'total_trades': 0,
                 'winners': 0,
                 'losers': 0,
                 'win_rate': 0,
@@ -226,9 +317,10 @@ class OCIDataReader:
             by_regime[regime]['count'] += 1
 
         return {
-            'date': session_date,
+            'run_id': run_id,
+            'config_type': config_type,
             'total_pnl': total_pnl,
-            'trades': len(trades),
+            'total_trades': len(trades),
             'winners': len(winners),
             'losers': len(losers),
             'win_rate': len(winners) / len(trades) * 100 if trades else 0,
@@ -238,75 +330,17 @@ class OCIDataReader:
             'by_regime': by_regime
         }
 
-    def get_run_summary(self, run_id: str, last_n_days: int = 30) -> Dict:
-        """
-        Get summary metrics for entire run (or last N days).
-
-        This is computed on-the-fly from session data, NOT stored locally.
-
-        Returns:
-            Dict with cumulative metrics
-        """
-        sessions = self.list_sessions(run_id)
-
-        # Limit to last N days
-        if last_n_days:
-            sessions = sessions[:last_n_days]
-
-        all_summaries = []
-        cumulative_pnl = 0
-        total_trades = 0
-        total_winners = 0
-        setup_totals = {}
-        regime_totals = {}
-
-        for session_date in sessions:
-            summary = self.get_daily_summary(run_id, session_date)
-            all_summaries.append(summary)
-
-            cumulative_pnl += summary['total_pnl']
-            total_trades += summary['trades']
-            total_winners += summary['winners']
-
-            # Aggregate setups
-            for setup, data in summary['by_setup'].items():
-                if setup not in setup_totals:
-                    setup_totals[setup] = {'pnl': 0, 'count': 0, 'wins': 0}
-                setup_totals[setup]['pnl'] += data['pnl']
-                setup_totals[setup]['count'] += data['count']
-                setup_totals[setup]['wins'] += data['wins']
-
-            # Aggregate regimes
-            for regime, data in summary['by_regime'].items():
-                if regime not in regime_totals:
-                    regime_totals[regime] = {'pnl': 0, 'count': 0}
-                regime_totals[regime]['pnl'] += data['pnl']
-                regime_totals[regime]['count'] += data['count']
-
-        return {
-            'run_id': run_id,
-            'sessions_analyzed': len(sessions),
-            'total_pnl': cumulative_pnl,
-            'total_trades': total_trades,
-            'total_winners': total_winners,
-            'win_rate': total_winners / total_trades * 100 if total_trades else 0,
-            'avg_pnl_per_trade': cumulative_pnl / total_trades if total_trades else 0,
-            'by_setup': setup_totals,
-            'by_regime': regime_totals,
-            'daily_summaries': all_summaries
-        }
-
-    def get_trade_details(self, run_id: str, session_date: str, trade_id: str) -> Dict:
+    def get_trade_details(self, config_type: str, run_id: str, trade_id: str) -> Dict:
         """
         Get complete details for a single trade.
 
         Returns:
             Dict with decision, trigger, exits, derived metrics
         """
-        events = self.get_events(run_id, session_date)
-        analytics = self.get_analytics(run_id, session_date)
+        events = self.get_events(config_type, run_id)
+        analytics = self.get_analytics(config_type, run_id)
 
-        trade = {'trade_id': trade_id, 'date': session_date}
+        trade = {'trade_id': trade_id, 'config_type': config_type, 'run_id': run_id}
 
         # Find DECISION
         for event in events:
@@ -333,3 +367,19 @@ class OCIDataReader:
                     trade['total_pnl'] = exit_event.get('total_trade_pnl', 0)
 
         return trade
+
+    def list_files(self, config_type: str, run_id: str) -> List[str]:
+        """List all files in a run folder"""
+        response = self.os_client.list_objects(
+            namespace_name=self.namespace,
+            bucket_name=self.bucket_name,
+            prefix=f"{config_type}/{run_id}/",
+            limit=100
+        )
+
+        files = []
+        for obj in response.data.objects or []:
+            filename = obj.name.split('/')[-1]
+            if filename:
+                files.append(filename)
+        return files
