@@ -2,6 +2,18 @@
 Trading Dashboard UI - Streamlit
 ================================
 
+Shows combined dashboard of all runs within a config type (fixed, relative, 1year).
+Each run represents one trading day.
+
+Bucket structure:
+    paper-trading-logs/
+    ├── fixed/
+    │   ├── paper_20260101_084724/   (Day 1)
+    │   ├── paper_20260102_084500/   (Day 2)
+    │   └── ...
+    ├── relative/
+    └── 1year/
+
 Run:
     streamlit run app.py --server.port 8501 --server.address 0.0.0.0
 """
@@ -10,8 +22,6 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from datetime import datetime
-
 from oci_reader import OCIDataReader
 
 st.set_page_config(
@@ -35,28 +45,35 @@ def get_reader():
 
 
 @st.cache_data(ttl=300)
-def load_runs(_reader, limit: int = 50):
-    return _reader.list_runs(limit=limit)
+def load_config_types(_reader):
+    return _reader.list_config_types()
+
+
+@st.cache_data(ttl=300)
+def load_runs(_reader, config_type: str, limit: int = 100):
+    return _reader.list_runs(config_type=config_type, limit=limit)
 
 
 @st.cache_data(ttl=60)
-def load_sessions(_reader, run_id: str):
-    return _reader.list_sessions(run_id)
-
-
-@st.cache_data(ttl=30)
-def load_run_summary(_reader, run_id: str, days: int):
-    return _reader.get_run_summary(run_id, last_n_days=days)
-
-
-@st.cache_data(ttl=10)
-def load_daily_summary(_reader, run_id: str, session_date: str):
-    return _reader.get_daily_summary(run_id, session_date)
+def load_run_summary(_reader, config_type: str, run_id: str):
+    return _reader.get_run_summary(config_type, run_id)
 
 
 @st.cache_data(ttl=60)
-def load_trade_details(_reader, run_id: str, session_date: str, trade_id: str):
-    return _reader.get_trade_details(run_id, session_date, trade_id)
+def load_analytics(_reader, config_type: str, run_id: str):
+    return _reader.get_analytics(config_type, run_id)
+
+
+@st.cache_data(ttl=120)
+def load_all_summaries(_reader, config_type: str, runs: list):
+    """Load summaries for all runs in a config type"""
+    summaries = []
+    for run in runs:
+        run_id = run['run_id']
+        summary = _reader.get_run_summary(config_type, run_id)
+        summary['date'] = run.get('timestamp', 'Unknown')
+        summaries.append(summary)
+    return summaries
 
 
 def fmt_inr(value: float) -> str:
@@ -69,112 +86,160 @@ def fmt_pct(value: float) -> str:
     return f"{value:.1f}%"
 
 
-def render_live_tab(reader, run_id: str, sessions: list):
-    st.header("🔴 Live Monitor")
+def aggregate_summaries(summaries: list) -> dict:
+    """Aggregate multiple run summaries into one combined summary"""
+    total_pnl = 0
+    total_trades = 0
+    total_winners = 0
+    total_losers = 0
+    total_decisions = 0
+    total_fees = 0
+    all_trades = []
+    by_setup = {}
+    daily_data = []
 
-    if not sessions:
-        st.warning("No sessions found")
-        return
+    for s in summaries:
+        total_pnl += s.get('total_pnl', 0)
+        total_trades += s.get('total_trades', 0)
+        total_winners += s.get('winners', 0)
+        total_losers += s.get('losers', 0)
+        total_decisions += s.get('total_decisions', 0)
+        total_fees += s.get('total_fees', 0)
 
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        st.subheader(f"Latest: {sessions[0]}")
-    with col2:
-        if st.button("🔄 Refresh"):
-            st.cache_data.clear()
-            st.rerun()
+        # Collect trades
+        all_trades.extend(s.get('trades', []))
 
-    summary = load_daily_summary(reader, run_id, sessions[0])
+        # Aggregate by setup
+        for setup, data in s.get('by_setup', {}).items():
+            if setup not in by_setup:
+                by_setup[setup] = {'pnl': 0, 'count': 0, 'wins': 0}
+            by_setup[setup]['pnl'] += data.get('pnl', 0)
+            by_setup[setup]['count'] += data.get('count', 0)
+            by_setup[setup]['wins'] += data.get('wins', 0)
 
-    col1, col2, col3, col4, col5 = st.columns(5)
-    col1.metric("PnL", fmt_inr(summary['total_pnl']))
-    col2.metric("Trades", summary['trades'])
-    col3.metric("Win Rate", fmt_pct(summary['win_rate']))
-    col4.metric("W/L", f"{summary['winners']}/{summary['losers']}")
-    col5.metric("Updated", datetime.now().strftime("%H:%M:%S"))
+        # Daily data for charts
+        daily_data.append({
+            'date': s.get('date', 'Unknown'),
+            'run_id': s.get('run_id'),
+            'pnl': s.get('total_pnl', 0),
+            'trades': s.get('total_trades', 0),
+            'winners': s.get('winners', 0),
+            'losers': s.get('losers', 0),
+            'win_rate': s.get('win_rate', 0)
+        })
 
-    st.divider()
-    st.subheader("Recent Exits")
-
-    analytics = reader.get_analytics(run_id, sessions[0])
-    if analytics:
-        recent = sorted(analytics, key=lambda x: x.get('timestamp', ''), reverse=True)[:15]
-        for exit in recent:
-            pnl = exit.get('pnl', 0)
-            icon = "🟢" if pnl > 0 else "🔴"
-            symbol = exit.get('symbol', '?')
-            reason = exit.get('reason', '?')
-            time = exit.get('timestamp', '')[-8:]
-            final = "✅" if exit.get('is_final_exit') else ""
-            st.write(f"{icon} **{time}** | {symbol} | {reason} | {fmt_inr(pnl)} {final}")
-    else:
-        st.info("No exits yet")
+    return {
+        'total_pnl': total_pnl,
+        'total_trades': total_trades,
+        'total_winners': total_winners,
+        'total_losers': total_losers,
+        'win_rate': (total_winners / total_trades * 100) if total_trades else 0,
+        'total_decisions': total_decisions,
+        'execution_rate': (total_trades / total_decisions * 100) if total_decisions else 0,
+        'total_fees': total_fees,
+        'by_setup': by_setup,
+        'trades': all_trades,
+        'daily_data': daily_data,
+        'days': len(summaries)
+    }
 
 
-def render_overview_tab(summary: dict):
+def render_overview_tab(agg: dict):
     st.header("📊 Overview")
 
+    # Main metrics
     col1, col2, col3, col4, col5 = st.columns(5)
-    col1.metric("Total PnL", fmt_inr(summary['total_pnl']))
-    col2.metric("Trades", summary['total_trades'])
-    col3.metric("Win Rate", fmt_pct(summary['win_rate']))
-    col4.metric("Avg PnL", fmt_inr(summary['avg_pnl_per_trade']))
-    col5.metric("Sessions", summary['sessions_analyzed'])
+    col1.metric("Total PnL", fmt_inr(agg['total_pnl']))
+    col2.metric("Total Trades", agg['total_trades'])
+    col3.metric("Win Rate", fmt_pct(agg['win_rate']))
+    col4.metric("Trading Days", agg['days'])
+    col5.metric("Avg PnL/Day", fmt_inr(agg['total_pnl'] / agg['days']) if agg['days'] else "N/A")
 
     st.divider()
 
-    if summary.get('daily_summaries'):
-        df = pd.DataFrame(summary['daily_summaries'])
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Winners", agg['total_winners'])
+    col2.metric("Losers", agg['total_losers'])
+    col3.metric("Total Fees", fmt_inr(agg['total_fees']))
+    col4.metric("Avg PnL/Trade", fmt_inr(agg['total_pnl'] / agg['total_trades']) if agg['total_trades'] else "N/A")
+
+    st.divider()
+
+    # Equity curve
+    daily = agg.get('daily_data', [])
+    if daily:
+        df = pd.DataFrame(daily)
         if 'date' in df.columns:
             df['date'] = pd.to_datetime(df['date'], errors='coerce')
             df = df.dropna(subset=['date']).sort_values('date')
-            df['cumulative_pnl'] = df['total_pnl'].cumsum()
+            df['cumulative_pnl'] = df['pnl'].cumsum()
 
             st.subheader("📈 Equity Curve")
             fig = go.Figure()
             fig.add_trace(go.Scatter(
                 x=df['date'], y=df['cumulative_pnl'],
                 mode='lines+markers', fill='tozeroy',
-                line=dict(color='#1f77b4', width=2)
+                line=dict(color='#1f77b4', width=2),
+                name='Cumulative PnL'
             ))
-            fig.update_layout(template='plotly_white', hovermode='x unified')
+            fig.update_layout(
+                template='plotly_white',
+                hovermode='x unified',
+                yaxis_title='Cumulative PnL (₹)',
+                xaxis_title='Date'
+            )
             st.plotly_chart(fig, use_container_width=True)
 
             st.subheader("📊 Daily PnL")
-            df['color'] = df['total_pnl'].apply(lambda x: '#00c853' if x >= 0 else '#ff1744')
+            df['color'] = df['pnl'].apply(lambda x: '#00c853' if x >= 0 else '#ff1744')
             fig = go.Figure()
-            fig.add_trace(go.Bar(x=df['date'], y=df['total_pnl'], marker_color=df['color']))
-            fig.update_layout(template='plotly_white')
+            fig.add_trace(go.Bar(x=df['date'], y=df['pnl'], marker_color=df['color']))
+            fig.update_layout(template='plotly_white', yaxis_title='PnL (₹)', xaxis_title='Date')
             st.plotly_chart(fig, use_container_width=True)
 
 
-def render_setup_tab(summary: dict):
+def render_setup_tab(agg: dict):
     st.header("🎯 Setup Analysis")
 
-    setup_data = summary.get('by_setup', {})
+    setup_data = agg.get('by_setup', {})
     if not setup_data:
-        st.warning("No setup data")
+        st.warning("No setup data available")
         return
 
     rows = []
     for setup, data in setup_data.items():
         win_rate = data['wins'] / data['count'] * 100 if data['count'] else 0
         avg_pnl = data['pnl'] / data['count'] if data['count'] else 0
-        rows.append({'Setup': setup, 'Trades': data['count'], 'PnL': data['pnl'],
-                    'Win Rate': win_rate, 'Avg PnL': avg_pnl})
+        rows.append({
+            'Setup': setup,
+            'Trades': data['count'],
+            'PnL': data['pnl'],
+            'Wins': data['wins'],
+            'Win Rate': win_rate,
+            'Avg PnL': avg_pnl
+        })
 
     df = pd.DataFrame(rows).sort_values('PnL', ascending=False)
 
     col1, col2 = st.columns(2)
     with col1:
         fig = px.bar(df, x='Setup', y='PnL', color='PnL',
-                    color_continuous_scale=['red', 'yellow', 'green'])
+                    color_continuous_scale=['red', 'yellow', 'green'],
+                    title='PnL by Setup')
         fig.update_layout(template='plotly_white', xaxis_tickangle=-45)
         st.plotly_chart(fig, use_container_width=True)
     with col2:
-        fig = px.pie(df, values='Trades', names='Setup')
+        fig = px.pie(df, values='Trades', names='Setup', title='Trade Distribution')
         st.plotly_chart(fig, use_container_width=True)
 
+    # Win rate bar chart
+    fig = px.bar(df, x='Setup', y='Win Rate', color='Win Rate',
+                color_continuous_scale=['red', 'yellow', 'green'],
+                title='Win Rate by Setup')
+    fig.update_layout(template='plotly_white', xaxis_tickangle=-45)
+    st.plotly_chart(fig, use_container_width=True)
+
+    # Data table
     display_df = df.copy()
     display_df['PnL'] = display_df['PnL'].apply(fmt_inr)
     display_df['Win Rate'] = display_df['Win Rate'].apply(lambda x: f"{x:.1f}%")
@@ -182,75 +247,127 @@ def render_setup_tab(summary: dict):
     st.dataframe(display_df, use_container_width=True, hide_index=True)
 
 
-def render_regime_tab(summary: dict):
-    st.header("🌊 Regime Analysis")
+def render_daily_tab(agg: dict, runs: list, reader, config_type: str):
+    st.header("📅 Daily Breakdown")
 
-    regime_data = summary.get('by_regime', {})
-    if not regime_data:
-        st.warning("No regime data")
+    daily = agg.get('daily_data', [])
+    if not daily:
+        st.warning("No daily data")
         return
 
-    rows = []
-    for regime, data in regime_data.items():
-        avg_pnl = data['pnl'] / data['count'] if data['count'] else 0
-        rows.append({'Regime': regime, 'Trades': data['count'], 'PnL': data['pnl'], 'Avg PnL': avg_pnl})
+    df = pd.DataFrame(daily)
+    if 'date' in df.columns:
+        df['date'] = pd.to_datetime(df['date'], errors='coerce')
+        df = df.dropna(subset=['date']).sort_values('date', ascending=False)
 
-    df = pd.DataFrame(rows).sort_values('PnL', ascending=False)
-
-    colors = {'squeeze': '#FFA500', 'trend_up': '#00C853', 'trend_down': '#FF1744', 'chop': '#9E9E9E'}
-
-    col1, col2 = st.columns(2)
-    with col1:
-        bar_colors = [colors.get(r, '#1f77b4') for r in df['Regime']]
-        fig = go.Figure()
-        fig.add_trace(go.Bar(x=df['Regime'], y=df['PnL'], marker_color=bar_colors))
-        fig.update_layout(template='plotly_white')
-        st.plotly_chart(fig, use_container_width=True)
-    with col2:
-        fig = px.pie(df, values='Trades', names='Regime', color='Regime', color_discrete_map=colors)
-        st.plotly_chart(fig, use_container_width=True)
-
+    # Summary table
     display_df = df.copy()
-    display_df['PnL'] = display_df['PnL'].apply(fmt_inr)
-    display_df['Avg PnL'] = display_df['Avg PnL'].apply(fmt_inr)
+    display_df['pnl'] = display_df['pnl'].apply(fmt_inr)
+    display_df['win_rate'] = display_df['win_rate'].apply(lambda x: f"{x:.1f}%")
+    display_df = display_df[['date', 'run_id', 'pnl', 'trades', 'winners', 'losers', 'win_rate']]
+    display_df.columns = ['Date', 'Run ID', 'PnL', 'Trades', 'Winners', 'Losers', 'Win Rate']
     st.dataframe(display_df, use_container_width=True, hide_index=True)
-
-
-def render_sessions_tab(reader, run_id: str, sessions: list):
-    st.header("📅 Session Details")
-
-    if not sessions:
-        st.warning("No sessions")
-        return
-
-    selected = st.selectbox("Select Session", sessions)
-    summary = load_daily_summary(reader, run_id, selected)
-
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("PnL", fmt_inr(summary['total_pnl']))
-    col2.metric("Trades", summary['trades'])
-    col3.metric("Win Rate", fmt_pct(summary['win_rate']))
-    col4.metric("W/L", f"{summary['winners']}/{summary['losers']}")
 
     st.divider()
 
-    analytics = reader.get_analytics(run_id, selected)
-    trades = [a for a in analytics if a.get('is_final_exit')]
+    # Select specific day to drill down
+    st.subheader("Drill Down")
+    run_ids = [r['run_id'] for r in runs]
+    selected_run = st.selectbox("Select Day/Run", run_ids)
 
-    if trades:
-        st.subheader("Trades")
-        df = pd.DataFrame(trades)
-        cols = ['trade_id', 'symbol', 'setup_type', 'regime', 'total_trade_pnl', 'reason']
-        available = [c for c in cols if c in df.columns]
-        display_df = df[available].copy()
-        if 'total_trade_pnl' in display_df.columns:
-            display_df['total_trade_pnl'] = display_df['total_trade_pnl'].apply(fmt_inr)
+    if selected_run:
+        summary = load_run_summary(reader, config_type, selected_run)
+
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("PnL", fmt_inr(summary.get('total_pnl', 0)))
+        col2.metric("Trades", summary.get('total_trades', 0))
+        col3.metric("Win Rate", fmt_pct(summary.get('win_rate', 0)))
+        col4.metric("W/L", f"{summary.get('winners', 0)}/{summary.get('losers', 0)}")
+
+        trades = summary.get('trades', [])
+        if trades:
+            st.subheader("Trades")
+            trades_df = pd.DataFrame(trades)
+            if 'pnl' in trades_df.columns:
+                trades_df['pnl_fmt'] = trades_df['pnl'].apply(fmt_inr)
+            st.dataframe(trades_df, use_container_width=True, hide_index=True)
+
+
+def render_trades_tab(agg: dict):
+    st.header("📈 All Trades")
+
+    trades = agg.get('trades', [])
+    if not trades:
+        st.warning("No trades data")
+        return
+
+    st.subheader(f"Total Trades: {len(trades)}")
+
+    df = pd.DataFrame(trades)
+
+    # PnL distribution
+    if 'pnl' in df.columns:
+        st.subheader("PnL Distribution")
+        fig = px.histogram(df, x='pnl', nbins=30, title='Trade PnL Distribution')
+        fig.update_layout(template='plotly_white', xaxis_title='PnL (₹)', yaxis_title='Count')
+        st.plotly_chart(fig, use_container_width=True)
+
+        # Stats
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Max Win", fmt_inr(df['pnl'].max()))
+        col2.metric("Max Loss", fmt_inr(df['pnl'].min()))
+        col3.metric("Avg Win", fmt_inr(df[df['pnl'] > 0]['pnl'].mean()) if len(df[df['pnl'] > 0]) > 0 else "N/A")
+        col4.metric("Avg Loss", fmt_inr(df[df['pnl'] <= 0]['pnl'].mean()) if len(df[df['pnl'] <= 0]) > 0 else "N/A")
+
+    # Trades table
+    st.subheader("Trade List")
+    display_cols = ['symbol', 'setup', 'pnl', 'exit_reason']
+    available_cols = [c for c in display_cols if c in df.columns]
+    display_df = df[available_cols].copy()
+    if 'pnl' in display_df.columns:
+        display_df['pnl'] = display_df['pnl'].apply(fmt_inr)
+    st.dataframe(display_df, use_container_width=True, hide_index=True)
+
+
+def render_compare_tab(reader, config_types: list):
+    st.header("🔄 Compare Configs")
+
+    comparisons = []
+    for ct in config_types:
+        runs = load_runs(reader, ct)
+        if runs:
+            summaries = load_all_summaries(reader, ct, runs)
+            agg = aggregate_summaries(summaries)
+            comparisons.append({
+                'Config': ct,
+                'Days': agg['days'],
+                'Total PnL': agg['total_pnl'],
+                'Total Trades': agg['total_trades'],
+                'Win Rate': agg['win_rate'],
+                'Avg PnL/Day': agg['total_pnl'] / agg['days'] if agg['days'] else 0
+            })
+
+    if comparisons:
+        df = pd.DataFrame(comparisons)
+
+        # Bar chart comparison
+        fig = px.bar(df, x='Config', y='Total PnL', color='Total PnL',
+                    color_continuous_scale=['red', 'yellow', 'green'],
+                    title='Total PnL by Config')
+        fig.update_layout(template='plotly_white')
+        st.plotly_chart(fig, use_container_width=True)
+
+        # Table
+        display_df = df.copy()
+        display_df['Total PnL'] = display_df['Total PnL'].apply(fmt_inr)
+        display_df['Win Rate'] = display_df['Win Rate'].apply(lambda x: f"{x:.1f}%")
+        display_df['Avg PnL/Day'] = display_df['Avg PnL/Day'].apply(fmt_inr)
         st.dataframe(display_df, use_container_width=True, hide_index=True)
 
 
 def main():
     st.title("📈 Trading Dashboard")
-    st.caption("Reading from OCI Object Storage")
+    st.caption("Aggregated view across all trading days")
 
     try:
         reader = get_reader()
@@ -261,46 +378,54 @@ def main():
     with st.sidebar:
         st.header("Config")
 
-        with st.spinner("Loading runs..."):
-            runs = load_runs(reader)
+        # Load config types
+        with st.spinner("Loading..."):
+            config_types = load_config_types(reader)
 
-        if not runs:
-            st.warning("No runs in bucket")
+        if not config_types:
+            st.warning("No config types in bucket")
             return
 
-        run_opts = [f"{r['run_id']}" for r in runs]
-        selected_idx = st.selectbox("Run", range(len(run_opts)), format_func=lambda i: run_opts[i])
-        selected_run = runs[selected_idx]['run_id']
+        selected_config = st.selectbox("📁 Config Type", config_types)
 
-        sessions = load_sessions(reader, selected_run)
-        st.success(f"{len(sessions)} sessions")
+        # Load all runs for selected config
+        with st.spinner("Loading runs..."):
+            runs = load_runs(reader, selected_config)
 
-        days = st.slider("Days", 7, min(180, len(sessions) if sessions else 30), 30)
+        if not runs:
+            st.warning(f"No runs in {selected_config}")
+            return
+
+        st.success(f"📊 {len(runs)} trading days")
 
         st.divider()
-        st.caption(f"Run: {selected_run}")
+        st.caption(f"Config: **{selected_config}**")
+        st.caption(f"Days: **{len(runs)}**")
 
-        if st.button("🔄 Refresh All"):
+        if st.button("🔄 Refresh"):
             st.cache_data.clear()
             st.rerun()
 
-    with st.spinner("Loading..."):
-        summary = load_run_summary(reader, selected_run, days)
+    # Load and aggregate all summaries
+    with st.spinner("Loading all data..."):
+        summaries = load_all_summaries(reader, selected_config, runs)
+        agg = aggregate_summaries(summaries)
 
+    # Tabs
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "🔴 Live", "📊 Overview", "🎯 Setups", "🌊 Regimes", "📅 Sessions"
+        "📊 Overview", "🎯 Setups", "📅 Daily", "📈 Trades", "🔄 Compare"
     ])
 
     with tab1:
-        render_live_tab(reader, selected_run, sessions)
+        render_overview_tab(agg)
     with tab2:
-        render_overview_tab(summary)
+        render_setup_tab(agg)
     with tab3:
-        render_setup_tab(summary)
+        render_daily_tab(agg, runs, reader, selected_config)
     with tab4:
-        render_regime_tab(summary)
+        render_trades_tab(agg)
     with tab5:
-        render_sessions_tab(reader, selected_run, sessions)
+        render_compare_tab(reader, config_types)
 
 
 if __name__ == "__main__":
