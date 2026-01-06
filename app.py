@@ -355,40 +355,138 @@ def render_trades_tab(agg: dict):
     st.dataframe(display_df, use_container_width=True, hide_index=True)
 
 
-def render_compare_tab(reader, config_types: list):
+def render_compare_tab(reader, config_types: list, date_from=None, date_to=None):
     st.header("🔄 Compare Configs")
 
-    comparisons = []
-    for ct in config_types:
+    # Let user select which configs to compare
+    selected_configs = st.multiselect(
+        "Select configs to compare",
+        config_types,
+        default=config_types[:2] if len(config_types) >= 2 else config_types
+    )
+
+    if len(selected_configs) < 2:
+        st.info("Select at least 2 configs to compare")
+        return
+
+    # Load data for each config with date filtering
+    config_data = {}
+    daily_comparison = []
+
+    for ct in selected_configs:
         runs = load_runs(reader, ct)
+
+        # Filter by date range if provided
+        if date_from and date_to:
+            filtered_runs = []
+            for run in runs:
+                ts = run.get('timestamp')
+                if ts and ts != 'Unknown':
+                    try:
+                        run_date = pd.to_datetime(ts).date()
+                        if date_from <= run_date <= date_to:
+                            filtered_runs.append(run)
+                    except:
+                        filtered_runs.append(run)
+            runs = filtered_runs
+
         if runs:
             summaries = load_all_summaries(reader, ct, runs)
             agg = aggregate_summaries(summaries)
-            comparisons.append({
-                'Config': ct,
-                'Days': agg['days'],
-                'Total PnL': agg['total_pnl'],
-                'Total Trades': agg['total_trades'],
-                'Win Rate': agg['win_rate'],
-                'Avg PnL/Day': agg['total_pnl'] / agg['days'] if agg['days'] else 0
-            })
+            config_data[ct] = agg
 
-    if comparisons:
-        df = pd.DataFrame(comparisons)
+            # Collect daily data for comparison chart
+            for day in agg.get('daily_data', []):
+                daily_comparison.append({
+                    'config': ct,
+                    'date': day.get('date'),
+                    'pnl': day.get('pnl', 0),
+                    'trades': day.get('trades', 0),
+                    'win_rate': day.get('win_rate', 0)
+                })
 
-        # Bar chart comparison
-        fig = px.bar(df, x='Config', y='Total PnL', color='Total PnL',
-                    color_continuous_scale=['red', 'yellow', 'green'],
-                    title='Total PnL by Config')
-        fig.update_layout(template='plotly_white')
-        st.plotly_chart(fig, use_container_width=True)
+    if not config_data:
+        st.warning("No data available for selected configs in this date range")
+        return
 
-        # Table
-        display_df = df.copy()
-        display_df['Total PnL'] = display_df['Total PnL'].apply(fmt_inr)
-        display_df['Win Rate'] = display_df['Win Rate'].apply(lambda x: f"{x:.1f}%")
-        display_df['Avg PnL/Day'] = display_df['Avg PnL/Day'].apply(fmt_inr)
-        st.dataframe(display_df, use_container_width=True, hide_index=True)
+    # Summary comparison table
+    st.subheader("📊 Summary Comparison")
+    comparisons = []
+    for ct, agg in config_data.items():
+        comparisons.append({
+            'Config': ct,
+            'Days': agg['days'],
+            'Gross PnL': agg['gross_pnl'],
+            'Net PnL': agg['net_pnl'],
+            'Total Fees': agg['total_fees'],
+            'Total Trades': agg['total_trades'],
+            'Win Rate': agg['win_rate'],
+            'Avg PnL/Day': agg['net_pnl'] / agg['days'] if agg['days'] else 0
+        })
+
+    df = pd.DataFrame(comparisons)
+
+    # Display metrics side by side
+    cols = st.columns(len(selected_configs))
+    for i, ct in enumerate(selected_configs):
+        if ct in config_data:
+            agg = config_data[ct]
+            with cols[i]:
+                st.markdown(f"### {ct}")
+                st.metric("Net PnL", fmt_inr(agg['net_pnl']))
+                st.metric("Gross PnL", fmt_inr(agg['gross_pnl']))
+                st.metric("Trades", agg['total_trades'])
+                st.metric("Win Rate", fmt_pct(agg['win_rate']))
+                st.metric("Days", agg['days'])
+                st.metric("Fees", fmt_inr(agg['total_fees']))
+
+    st.divider()
+
+    # Bar chart comparison
+    st.subheader("📈 PnL Comparison")
+    fig = px.bar(df, x='Config', y='Net PnL', color='Config',
+                title='Net PnL by Config')
+    fig.update_layout(template='plotly_white', showlegend=False)
+    st.plotly_chart(fig, use_container_width=True)
+
+    # Daily PnL comparison chart
+    if daily_comparison:
+        st.subheader("📅 Daily PnL Comparison")
+        daily_df = pd.DataFrame(daily_comparison)
+        daily_df['date'] = pd.to_datetime(daily_df['date'], errors='coerce')
+        daily_df = daily_df.dropna(subset=['date']).sort_values('date')
+
+        if not daily_df.empty:
+            # Line chart comparing daily PnL
+            fig = px.line(daily_df, x='date', y='pnl', color='config',
+                         title='Daily PnL by Config', markers=True)
+            fig.update_layout(template='plotly_white',
+                            xaxis_title='Date', yaxis_title='PnL (₹)',
+                            legend_title='Config')
+            st.plotly_chart(fig, use_container_width=True)
+
+            # Cumulative PnL comparison
+            st.subheader("📈 Cumulative PnL Comparison")
+            for ct in selected_configs:
+                mask = daily_df['config'] == ct
+                daily_df.loc[mask, 'cumulative_pnl'] = daily_df.loc[mask, 'pnl'].cumsum()
+
+            fig = px.line(daily_df, x='date', y='cumulative_pnl', color='config',
+                         title='Cumulative PnL by Config', markers=True)
+            fig.update_layout(template='plotly_white',
+                            xaxis_title='Date', yaxis_title='Cumulative PnL (₹)',
+                            legend_title='Config')
+            st.plotly_chart(fig, use_container_width=True)
+
+    # Summary table
+    st.subheader("📋 Comparison Table")
+    display_df = df.copy()
+    display_df['Gross PnL'] = display_df['Gross PnL'].apply(fmt_inr)
+    display_df['Net PnL'] = display_df['Net PnL'].apply(fmt_inr)
+    display_df['Total Fees'] = display_df['Total Fees'].apply(fmt_inr)
+    display_df['Win Rate'] = display_df['Win Rate'].apply(lambda x: f"{x:.1f}%")
+    display_df['Avg PnL/Day'] = display_df['Avg PnL/Day'].apply(fmt_inr)
+    st.dataframe(display_df, use_container_width=True, hide_index=True)
 
 
 def main():
@@ -435,6 +533,8 @@ def main():
         st.divider()
         st.subheader("📅 Date Range")
 
+        date_from = None
+        date_to = None
         if run_dates:
             min_date = min(run_dates)
             max_date = max(run_dates)
@@ -490,7 +590,7 @@ def main():
     with tab4:
         render_trades_tab(agg)
     with tab5:
-        render_compare_tab(reader, config_types)
+        render_compare_tab(reader, config_types, date_from, date_to)
 
 
 if __name__ == "__main__":
