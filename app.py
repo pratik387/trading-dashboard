@@ -221,14 +221,14 @@ def render_overview_tab(agg: dict):
                 yaxis_title='Cumulative PnL (₹)',
                 xaxis_title='Date'
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
             st.subheader("📊 Daily PnL")
             df['color'] = df['pnl'].apply(lambda x: '#00c853' if x >= 0 else '#ff1744')
             fig = go.Figure()
             fig.add_trace(go.Bar(x=df['date'], y=df['pnl'], marker_color=df['color']))
             fig.update_layout(template='plotly_white', yaxis_title='PnL (₹)', xaxis_title='Date')
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
 
 def render_setup_tab(agg: dict):
@@ -260,24 +260,24 @@ def render_setup_tab(agg: dict):
                     color_continuous_scale=['red', 'yellow', 'green'],
                     title='PnL by Setup')
         fig.update_layout(template='plotly_white', xaxis_tickangle=-45)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
     with col2:
         fig = px.pie(df, values='Trades', names='Setup', title='Trade Distribution')
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
 
     # Win rate bar chart
     fig = px.bar(df, x='Setup', y='Win Rate', color='Win Rate',
                 color_continuous_scale=['red', 'yellow', 'green'],
                 title='Win Rate by Setup')
     fig.update_layout(template='plotly_white', xaxis_tickangle=-45)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
 
     # Data table
     display_df = df.copy()
     display_df['PnL'] = display_df['PnL'].apply(fmt_inr)
     display_df['Win Rate'] = display_df['Win Rate'].apply(lambda x: f"{x:.1f}%")
     display_df['Avg PnL'] = display_df['Avg PnL'].apply(fmt_inr)
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
+    st.dataframe(display_df, width='stretch', hide_index=True)
 
 
 def render_daily_tab(agg: dict, runs: list, reader, config_type: str):
@@ -299,7 +299,7 @@ def render_daily_tab(agg: dict, runs: list, reader, config_type: str):
     display_df['win_rate'] = display_df['win_rate'].apply(lambda x: f"{x:.1f}%")
     display_df = display_df[['date', 'run_id', 'pnl', 'trades', 'winners', 'losers', 'win_rate']]
     display_df.columns = ['Date', 'Run ID', 'PnL', 'Trades', 'Winners', 'Losers', 'Win Rate']
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
+    st.dataframe(display_df, width='stretch', hide_index=True)
 
     st.divider()
 
@@ -323,7 +323,7 @@ def render_daily_tab(agg: dict, runs: list, reader, config_type: str):
             trades_df = pd.DataFrame(trades)
             if 'pnl' in trades_df.columns:
                 trades_df['pnl_fmt'] = trades_df['pnl'].apply(fmt_inr)
-            st.dataframe(trades_df, use_container_width=True, hide_index=True)
+            st.dataframe(trades_df, width='stretch', hide_index=True)
 
 
 def render_trades_tab(agg: dict):
@@ -343,7 +343,7 @@ def render_trades_tab(agg: dict):
         st.subheader("PnL Distribution")
         fig = px.histogram(df, x='pnl', nbins=30, title='Trade PnL Distribution')
         fig.update_layout(template='plotly_white', xaxis_title='PnL (₹)', yaxis_title='Count')
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
 
         # Stats
         col1, col2, col3, col4 = st.columns(4)
@@ -359,7 +359,7 @@ def render_trades_tab(agg: dict):
     display_df = df[available_cols].copy()
     if 'pnl' in display_df.columns:
         display_df['pnl'] = display_df['pnl'].apply(fmt_inr)
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
+    st.dataframe(display_df, width='stretch', hide_index=True)
 
 
 def render_compare_tab(reader, config_types: list, date_from=None, date_to=None):
@@ -493,7 +493,7 @@ def render_compare_tab(reader, config_types: list, date_from=None, date_to=None)
     fig = px.bar(df, x='Config', y='Net PnL', color='Config',
                 title='Net PnL by Config')
     fig.update_layout(template='plotly_white', showlegend=False)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
 
     # Daily PnL comparison chart
     if daily_comparison:
@@ -509,7 +509,7 @@ def render_compare_tab(reader, config_types: list, date_from=None, date_to=None)
             fig.update_layout(template='plotly_white',
                             xaxis_title='Date', yaxis_title='PnL (₹)',
                             legend_title='Config')
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
             # Cumulative PnL comparison
             st.subheader("📈 Cumulative PnL Comparison")
@@ -522,7 +522,7 @@ def render_compare_tab(reader, config_types: list, date_from=None, date_to=None)
             fig.update_layout(template='plotly_white',
                             xaxis_title='Date', yaxis_title='Cumulative PnL (₹)',
                             legend_title='Config')
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
     # Summary table
     st.subheader("📋 Comparison Table")
@@ -532,7 +532,7 @@ def render_compare_tab(reader, config_types: list, date_from=None, date_to=None)
     display_df['Total Fees'] = display_df['Total Fees'].apply(fmt_inr)
     display_df['Win Rate'] = display_df['Win Rate'].apply(lambda x: f"{x:.1f}%")
     display_df['Avg PnL/Day'] = display_df['Avg PnL/Day'].apply(fmt_inr)
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
+    st.dataframe(display_df, width='stretch', hide_index=True)
 
 
 def main():
