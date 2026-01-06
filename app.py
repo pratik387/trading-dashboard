@@ -22,6 +22,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+from datetime import datetime, timedelta
 from oci_reader import OCIDataReader
 
 st.set_page_config(
@@ -35,6 +36,16 @@ st.markdown("""
 <style>
     .positive { color: #00c853; }
     .negative { color: #ff1744; }
+    /* Prevent metric value truncation */
+    [data-testid="stMetricValue"] {
+        font-size: 1.5rem;
+        overflow: visible !important;
+        white-space: nowrap !important;
+        text-overflow: clip !important;
+    }
+    [data-testid="stMetricLabel"] {
+        font-size: 0.9rem;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -128,7 +139,14 @@ def aggregate_summaries(summaries: list) -> dict:
             'win_rate': s.get('win_rate', 0)
         })
 
+    # Gross PnL is total_pnl (already includes fees in most systems)
+    # Net PnL = Gross PnL - fees (if fees not already deducted)
+    gross_pnl = total_pnl + total_fees  # Add back fees to get gross
+    net_pnl = total_pnl  # Net is what we have after fees
+
     return {
+        'gross_pnl': gross_pnl,
+        'net_pnl': net_pnl,
         'total_pnl': total_pnl,
         'total_trades': total_trades,
         'total_winners': total_winners,
@@ -147,13 +165,14 @@ def aggregate_summaries(summaries: list) -> dict:
 def render_overview_tab(agg: dict):
     st.header("📊 Overview")
 
-    # Main metrics
-    col1, col2, col3, col4, col5 = st.columns(5)
-    col1.metric("Total PnL", fmt_inr(agg['total_pnl']))
-    col2.metric("Total Trades", agg['total_trades'])
-    col3.metric("Win Rate", fmt_pct(agg['win_rate']))
-    col4.metric("Trading Days", agg['days'])
-    col5.metric("Avg PnL/Day", fmt_inr(agg['total_pnl'] / agg['days']) if agg['days'] else "N/A")
+    # Main metrics - Gross and Net PnL
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
+    col1.metric("Gross PnL", fmt_inr(agg['gross_pnl']))
+    col2.metric("Net PnL", fmt_inr(agg['net_pnl']))
+    col3.metric("Total Trades", agg['total_trades'])
+    col4.metric("Win Rate", fmt_pct(agg['win_rate']))
+    col5.metric("Trading Days", agg['days'])
+    col6.metric("Avg PnL/Day", fmt_inr(agg['net_pnl'] / agg['days']) if agg['days'] else "N/A")
 
     st.divider()
 
@@ -161,7 +180,7 @@ def render_overview_tab(agg: dict):
     col1.metric("Winners", agg['total_winners'])
     col2.metric("Losers", agg['total_losers'])
     col3.metric("Total Fees", fmt_inr(agg['total_fees']))
-    col4.metric("Avg PnL/Trade", fmt_inr(agg['total_pnl'] / agg['total_trades']) if agg['total_trades'] else "N/A")
+    col4.metric("Avg PnL/Trade", fmt_inr(agg['net_pnl'] / agg['total_trades']) if agg['total_trades'] else "N/A")
 
     st.divider()
 
@@ -394,6 +413,45 @@ def main():
 
         if not runs:
             st.warning(f"No runs in {selected_config}")
+            return
+
+        # Parse dates from runs for date range filter
+        run_dates = []
+        for run in runs:
+            ts = run.get('timestamp')
+            if ts and ts != 'Unknown':
+                try:
+                    run_dates.append(pd.to_datetime(ts).date())
+                except:
+                    pass
+
+        st.divider()
+        st.subheader("📅 Date Range")
+
+        if run_dates:
+            min_date = min(run_dates)
+            max_date = max(run_dates)
+
+            date_from = st.date_input("From", value=min_date, min_value=min_date, max_value=max_date)
+            date_to = st.date_input("To", value=max_date, min_value=min_date, max_value=max_date)
+
+            # Filter runs by date range
+            filtered_runs = []
+            for run in runs:
+                ts = run.get('timestamp')
+                if ts and ts != 'Unknown':
+                    try:
+                        run_date = pd.to_datetime(ts).date()
+                        if date_from <= run_date <= date_to:
+                            filtered_runs.append(run)
+                    except:
+                        filtered_runs.append(run)
+                else:
+                    filtered_runs.append(run)
+            runs = filtered_runs
+
+        if not runs:
+            st.warning("No data in selected date range")
             return
 
         st.success(f"📊 {len(runs)} trading days")
