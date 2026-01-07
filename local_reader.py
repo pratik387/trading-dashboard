@@ -239,6 +239,9 @@ class LocalDataReader:
         """
         Get latest tick data for given symbols.
 
+        Tick files are partitioned: ticks_YYYYMMDD.part1.parquet, ticks_YYYYMMDD.part2.parquet, etc.
+        Reads the most recent partition(s) to find latest prices.
+
         Args:
             symbols: List of symbol names (without NSE: prefix)
             date: Date for tick file (defaults to today)
@@ -250,31 +253,60 @@ class LocalDataReader:
             date = datetime.now()
 
         date_str = date.strftime('%Y%m%d')
-        tick_file = self.ticks_path / f"ticks_{date_str}.parquet"
 
-        if not tick_file.exists():
+        # Find all tick files for this date (partitioned files)
+        tick_files = sorted(
+            self.ticks_path.glob(f"ticks_{date_str}*.parquet"),
+            key=lambda x: x.stat().st_mtime,
+            reverse=True  # Most recent first
+        )
+
+        if not tick_files:
             return {}
 
         try:
-            df = pd.read_parquet(tick_file)
-
-            # Get latest tick for each requested symbol
             latest_ticks = {}
-            for symbol in symbols:
-                # Handle both with and without NSE: prefix
-                symbol_clean = symbol.replace('NSE:', '')
-                symbol_variants = [symbol_clean, f'NSE:{symbol_clean}']
+            symbols_to_find = set(s.replace('NSE:', '') for s in symbols)
 
-                for variant in symbol_variants:
-                    mask = df['symbol'] == variant
-                    if mask.any():
-                        latest = df[mask].sort_values('ts').iloc[-1]
-                        latest_ticks[symbol_clean] = {
-                            'price': float(latest['price']),
-                            'volume': int(latest.get('volume', 0)),
-                            'ts': str(latest['ts'])
-                        }
-                        break
+            # Build symbol variants for matching (both with and without NSE: prefix)
+            symbol_variants_map = {}
+            for symbol in symbols_to_find:
+                symbol_variants_map[symbol] = [symbol, f'NSE:{symbol}']
+
+            # Read the most recent partition files (limit to last 5 for performance)
+            # Since files are sorted by mtime desc, the first few have the latest data
+            for tick_file in tick_files[:5]:
+                if not symbols_to_find:
+                    break  # Found all symbols
+
+                df = pd.read_parquet(tick_file)
+
+                for symbol in list(symbols_to_find):
+                    variants = symbol_variants_map.get(symbol, [symbol])
+
+                    for variant in variants:
+                        mask = df['symbol'] == variant
+                        if mask.any():
+                            symbol_df = df[mask].sort_values('ts')
+                            latest = symbol_df.iloc[-1]
+
+                            # Check if this tick is newer than what we already have
+                            current_ts = str(latest['ts'])
+                            if symbol in latest_ticks:
+                                if current_ts > latest_ticks[symbol]['ts']:
+                                    latest_ticks[symbol] = {
+                                        'price': float(latest['price']),
+                                        'volume': int(latest.get('volume', 0)),
+                                        'ts': current_ts
+                                    }
+                            else:
+                                latest_ticks[symbol] = {
+                                    'price': float(latest['price']),
+                                    'volume': int(latest.get('volume', 0)),
+                                    'ts': current_ts
+                                }
+                                symbols_to_find.discard(symbol)
+                            break
 
             return latest_ticks
         except Exception as e:
@@ -320,6 +352,42 @@ class LocalDataReader:
 
         return positions
 
+    def get_agent_log(self, run_id: str) -> Optional[str]:
+        """Get raw agent log content"""
+        run_path = self.logs_path / run_id
+        log_file = run_path / "agent.log"
+        if log_file.exists():
+            return log_file.read_text(encoding='utf-8', errors='ignore')
+        return None
+
+    def get_config(self) -> Dict:
+        """
+        Read configuration.json for the current config type.
+
+        Returns:
+            Dict with configuration or empty dict if not found
+        """
+        config_file = self.base_path / "config" / "configuration.json"
+        if config_file.exists():
+            try:
+                return json.loads(config_file.read_text(encoding='utf-8'))
+            except:
+                pass
+        return {}
+
+    def get_initial_capital(self) -> float:
+        """
+        Get initial capital from configuration.json.
+
+        Reads from: capital_management.initial_capital
+
+        Returns:
+            Initial capital amount or 500000 as default
+        """
+        config = self.get_config()
+        cap_mgmt = config.get('capital_management', {})
+        return cap_mgmt.get('initial_capital', 500000)
+
     def get_live_summary(self, run_id: str = None) -> Dict:
         """
         Get complete live trading summary.
@@ -359,6 +427,20 @@ class LocalDataReader:
         winners = sum(1 for t in closed_trades if t.get('total_trade_pnl', 0) > 0)
         losers = sum(1 for t in closed_trades if t.get('total_trade_pnl', 0) <= 0)
 
+        # Calculate capital used from open positions (entry_price * qty)
+        capital_in_positions = sum(
+            p['entry_price'] * p.get('remaining_qty', p['qty'])
+            for p in open_positions
+        )
+
+        # Get initial capital from config
+        initial_capital = self.get_initial_capital()
+        available_capital = initial_capital - capital_in_positions
+
+        # Debug info for tick data
+        date_str = datetime.now().strftime('%Y%m%d')
+        tick_files = list(self.ticks_path.glob(f"ticks_{date_str}*.parquet"))
+
         return {
             'run_id': run_id,
             'realized_pnl': realized_pnl,
@@ -370,5 +452,14 @@ class LocalDataReader:
             'winners': winners,
             'losers': losers,
             'win_rate': (winners / len(closed_trades) * 100) if closed_trades else 0,
+            'initial_capital': initial_capital,
+            'capital_in_positions': capital_in_positions,
+            'available_capital': available_capital,
+            'capital_utilization_pct': (capital_in_positions / initial_capital * 100) if initial_capital else 0,
+            'tick_files_count': len(tick_files),
+            'tick_files_path': str(self.ticks_path),
+            'ticks_found': len(ticks),
+            'symbols_searched': symbols,
+            'symbols_matched': list(ticks.keys()),
             'last_updated': datetime.now().isoformat()
         }

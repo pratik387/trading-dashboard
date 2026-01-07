@@ -23,7 +23,6 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
-import time
 from oci_reader import OCIDataReader
 from local_reader import LocalDataReader
 
@@ -372,8 +371,8 @@ def render_trades_tab(agg: dict):
 def render_live_tab(local_reader: LocalDataReader):
     st.header("🔴 Live Trading")
 
-    # Config type selector and auto-refresh controls
-    col1, col2, col3, col4 = st.columns([1.5, 1, 1, 1.5])
+    # Config type selector and refresh button
+    col1, col2 = st.columns([3, 1])
 
     with col1:
         # Get available local config types
@@ -391,11 +390,8 @@ def render_live_tab(local_reader: LocalDataReader):
         local_reader.set_config_type(selected_config)
 
     with col2:
-        auto_refresh = st.checkbox("Auto-refresh", value=True)
-    with col3:
-        refresh_interval = st.selectbox("Interval", [5, 10, 30, 60], index=1, format_func=lambda x: f"{x}s")
-    with col4:
-        if st.button("🔄 Refresh Now"):
+        st.write("")  # Spacer for alignment
+        if st.button("🔄 Refresh", key="live_refresh"):
             st.rerun()
 
     # Show config description
@@ -454,6 +450,16 @@ def render_live_tab(local_reader: LocalDataReader):
 
     st.divider()
 
+    # Capital usage
+    st.subheader("💵 Capital Usage")
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Initial Capital", fmt_inr(summary.get('initial_capital', 0)))
+    col2.metric("In Positions", fmt_inr(summary.get('capital_in_positions', 0)))
+    col3.metric("Available", fmt_inr(summary.get('available_capital', 0)))
+    col4.metric("Utilization", fmt_pct(summary.get('capital_utilization_pct', 0)))
+
+    st.divider()
+
     # Open positions table
     open_positions = summary.get('open_positions', [])
     if open_positions:
@@ -482,7 +488,7 @@ def render_live_tab(local_reader: LocalDataReader):
                 return f'color: {color}'
             return ''
 
-        styled_df = df.style.applymap(color_pnl, subset=['Unrealized PnL', 'Change %'])
+        styled_df = df.style.map(color_pnl, subset=['Unrealized PnL', 'Change %'])
         styled_df = styled_df.format({
             'Entry': '₹{:.2f}',
             'Current': '₹{:.2f}',
@@ -508,10 +514,13 @@ def render_live_tab(local_reader: LocalDataReader):
     # Last updated timestamp
     st.caption(f"Last updated: {summary.get('last_updated', 'Unknown')}")
 
-    # Auto-refresh logic
-    if auto_refresh:
-        time.sleep(refresh_interval)
-        st.rerun()
+    # Debug info (collapsible)
+    with st.expander("Debug Info"):
+        st.text(f"Tick files path: {summary.get('tick_files_path', 'N/A')}")
+        st.text(f"Tick files found: {summary.get('tick_files_count', 0)}")
+        st.text(f"Symbols searched: {summary.get('symbols_searched', [])}")
+        st.text(f"Symbols matched: {summary.get('symbols_matched', [])}")
+        st.text(f"Ticks matched: {summary.get('ticks_found', 0)} / {len(summary.get('symbols_searched', []))}")
 
 
 def render_compare_tab(reader, config_types: list, date_from=None, date_to=None):
