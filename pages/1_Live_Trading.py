@@ -221,6 +221,51 @@ def main():
     else:
         st.info("No open positions currently")
 
+    # Closed positions table
+    closed_positions = local_reader.get_closed_positions(today_run['run_id'])
+    if closed_positions:
+        st.subheader(f"✅ Closed Positions ({len(closed_positions)})")
+
+        closed_data = []
+        for pos in closed_positions:
+            pnl = pos.get('pnl', 0)
+            entry_price = pos['entry_price']
+            exit_price = pos.get('exit_price', entry_price)
+            pnl_pct = ((exit_price - entry_price) / entry_price * 100) if entry_price else 0
+            if pos['side'] == 'SELL':
+                pnl_pct = -pnl_pct
+
+            closed_data.append({
+                'Symbol': pos['symbol'],
+                'Side': '🔴 SHORT' if pos['side'] == 'SELL' else '🟢 LONG',
+                'Entry': entry_price,
+                'Exit': exit_price,
+                'Qty': pos['qty'],
+                'PnL': pnl,
+                'PnL %': pnl_pct,
+                'Reason': pos.get('exit_reason', ''),
+                'Exit Time': pos.get('exit_time', '')[:19] if pos.get('exit_time') else ''
+            })
+
+        df_closed = pd.DataFrame(closed_data)
+
+        # Style the dataframe
+        def color_closed_pnl(val):
+            if isinstance(val, (int, float)):
+                color = '#00c853' if val >= 0 else '#ff1744'
+                return f'color: {color}'
+            return ''
+
+        styled_closed = df_closed.style.map(color_closed_pnl, subset=['PnL', 'PnL %'])
+        styled_closed = styled_closed.format({
+            'Entry': '₹{:.2f}',
+            'Exit': '₹{:.2f}',
+            'PnL': '₹{:,.2f}',
+            'PnL %': '{:+.2f}%'
+        })
+
+        st.dataframe(styled_closed, use_container_width=True, hide_index=True)
+
     # Last updated timestamp
     st.caption(f"Last updated: {summary.get('last_updated', 'Unknown')}")
 

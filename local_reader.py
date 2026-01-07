@@ -229,6 +229,79 @@ class LocalDataReader:
 
         return open_positions
 
+    def get_closed_positions(self, run_id: str) -> List[Dict]:
+        """
+        Get closed positions with their PnL details.
+
+        Returns:
+            List of closed position dicts with trade details and PnL
+        """
+        events = self.get_events(run_id)
+        analytics = self.get_analytics(run_id)
+
+        # Get all triggered trades
+        triggered = {}
+        for event in events:
+            if event.get('type') == 'TRIGGER':
+                trade_id = event.get('trade_id')
+                trigger = event.get('trigger', {})
+                triggered[trade_id] = {
+                    'trade_id': trade_id,
+                    'symbol': event.get('symbol', '').replace('NSE:', ''),
+                    'entry_price': trigger.get('actual_price', 0),
+                    'qty': trigger.get('qty', 0),
+                    'side': trigger.get('side', ''),
+                    'setup': trigger.get('strategy', ''),
+                    'entry_time': event.get('ts', '')
+                }
+
+        # Build closed trades from analytics and events
+        closed_trades = {}  # trade_id -> {trade_info, pnl, exit_price, exit_time, exit_reason}
+
+        # From analytics (is_final_exit)
+        for record in analytics:
+            if record.get('is_final_exit'):
+                trade_id = record.get('trade_id')
+                if trade_id in triggered:
+                    closed_trades[trade_id] = {
+                        **triggered[trade_id],
+                        'pnl': record.get('total_trade_pnl', 0),
+                        'exit_price': record.get('exit_price', 0),
+                        'exit_time': record.get('exit_ts', ''),
+                        'exit_reason': record.get('exit_reason', '')
+                    }
+
+        # From events.jsonl (check exit_type == 'full' or remaining_qty == 0)
+        trade_pnl_accum = {}  # trade_id -> accumulated pnl
+        trade_exit_info = {}  # trade_id -> last exit info
+
+        for event in events:
+            if event.get('type') == 'EXIT':
+                trade_id = event.get('trade_id')
+                exit_info = event.get('exit', {})
+                pnl = exit_info.get('pnl', 0)
+                trade_pnl_accum[trade_id] = trade_pnl_accum.get(trade_id, 0) + pnl
+                trade_exit_info[trade_id] = {
+                    'exit_price': exit_info.get('actual_price', 0),
+                    'exit_time': event.get('ts', ''),
+                    'exit_reason': exit_info.get('reason', '')
+                }
+
+                # Check if final exit
+                diagnostics = exit_info.get('diagnostics', {})
+                if diagnostics.get('exit_type') == 'full' or diagnostics.get('remaining_qty') == 0:
+                    if trade_id not in closed_trades and trade_id in triggered:
+                        closed_trades[trade_id] = {
+                            **triggered[trade_id],
+                            'pnl': trade_pnl_accum.get(trade_id, 0),
+                            **trade_exit_info[trade_id]
+                        }
+
+        # Convert to list and sort by exit time desc
+        result = list(closed_trades.values())
+        result.sort(key=lambda x: x.get('exit_time', ''), reverse=True)
+        return result
+
     def get_realized_pnl(self, run_id: str) -> float:
         """Get total realized PnL from all exits (partial + final)"""
         # Try analytics first (available after EOD)
