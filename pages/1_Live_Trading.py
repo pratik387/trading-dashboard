@@ -230,17 +230,17 @@ def main():
         for pos in closed_positions:
             pnl = pos.get('pnl', 0)
             entry_price = pos['entry_price']
-            exit_price = pos.get('exit_price', entry_price)
-            pnl_pct = ((exit_price - entry_price) / entry_price * 100) if entry_price else 0
-            if pos['side'] == 'SELL':
-                pnl_pct = -pnl_pct
+            qty = pos['qty']
+            # Calculate PnL % from actual PnL and position cost
+            position_cost = entry_price * qty
+            pnl_pct = (pnl / position_cost * 100) if position_cost else 0
 
             closed_data.append({
                 'Symbol': pos['symbol'],
                 'Side': '🔴 SHORT' if pos['side'] == 'SELL' else '🟢 LONG',
                 'Entry': entry_price,
-                'Exit': exit_price,
-                'Qty': pos['qty'],
+                'Exit': pos.get('exit_price', 0),
+                'Qty': qty,
                 'PnL': pnl,
                 'PnL %': pnl_pct,
                 'Reason': pos.get('exit_reason', ''),

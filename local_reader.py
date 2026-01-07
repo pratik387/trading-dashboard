@@ -282,7 +282,7 @@ class LocalDataReader:
                 pnl = exit_info.get('pnl', 0)
                 trade_pnl_accum[trade_id] = trade_pnl_accum.get(trade_id, 0) + pnl
                 trade_exit_info[trade_id] = {
-                    'exit_price': exit_info.get('actual_price', 0),
+                    'exit_price': exit_info.get('price', 0),
                     'exit_time': event.get('ts', ''),
                     'exit_reason': exit_info.get('reason', '')
                 }
