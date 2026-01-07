@@ -143,12 +143,8 @@ export interface HistoricalTrade {
   setup: string;
   pnl: number;
   exit_reason: string;
-  // Optional fields that may be present
-  trade_id?: string;
-  entry_price?: number;
-  exit_price?: number;
-  qty?: number;
-  side?: string;
+  entry: number;
+  exit: number;
 }
 
 export interface AggregateData {
