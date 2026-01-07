@@ -202,13 +202,18 @@ class LocalDataReader:
             if record.get('is_final_exit'):
                 closed_trade_ids.add(record.get('trade_id'))
 
-        # Also check EXIT events for partial closes to update remaining qty
+        # Also check EXIT events for partial closes and final exits
         exit_qty = {}  # trade_id -> total exited qty
         for event in events:
             if event.get('type') == 'EXIT':
                 trade_id = event.get('trade_id')
                 exit_info = event.get('exit', {})
                 exit_qty[trade_id] = exit_qty.get(trade_id, 0) + exit_info.get('qty', 0)
+
+                # Check if this is a final exit (from events.jsonl)
+                diagnostics = exit_info.get('diagnostics', {})
+                if diagnostics.get('exit_type') == 'full' or diagnostics.get('remaining_qty') == 0:
+                    closed_trade_ids.add(trade_id)
 
         # Filter to only open positions
         open_positions = []
@@ -225,13 +230,22 @@ class LocalDataReader:
         return open_positions
 
     def get_realized_pnl(self, run_id: str) -> float:
-        """Get total realized PnL from closed trades"""
+        """Get total realized PnL from all exits (partial + final)"""
+        # Try analytics first (available after EOD)
         analytics = self.get_analytics(run_id)
+        if analytics:
+            total_pnl = 0
+            for record in analytics:
+                total_pnl += record.get('pnl', 0)
+            return total_pnl
 
+        # During live trading, sum from events.jsonl EXIT events
+        events = self.get_events(run_id)
         total_pnl = 0
-        for record in analytics:
-            # Sum up PnL from all exits
-            total_pnl += record.get('pnl', 0)
+        for event in events:
+            if event.get('type') == 'EXIT':
+                exit_info = event.get('exit', {})
+                total_pnl += exit_info.get('pnl', 0)
 
         return total_pnl
 
@@ -421,11 +435,38 @@ class LocalDataReader:
         total_unrealized = sum(p.get('unrealized_pnl', 0) for p in open_positions)
         total_pnl = realized_pnl + total_unrealized
 
-        # Get trade counts from analytics
+        # Get trade counts from analytics and events
         analytics = self.get_analytics(run_id)
-        closed_trades = [a for a in analytics if a.get('is_final_exit')]
-        winners = sum(1 for t in closed_trades if t.get('total_trade_pnl', 0) > 0)
-        losers = sum(1 for t in closed_trades if t.get('total_trade_pnl', 0) <= 0)
+        events = self.get_events(run_id)
+
+        # Track closed trades and their PnL
+        closed_trade_pnl = {}  # trade_id -> total pnl
+
+        # From analytics (is_final_exit)
+        for record in analytics:
+            if record.get('is_final_exit'):
+                trade_id = record.get('trade_id')
+                closed_trade_pnl[trade_id] = record.get('total_trade_pnl', 0)
+
+        # From events.jsonl (check exit_type == 'full' or remaining_qty == 0)
+        # Also accumulate PnL from all exits for each trade
+        trade_pnl_accum = {}  # trade_id -> accumulated pnl from exits
+        for event in events:
+            if event.get('type') == 'EXIT':
+                trade_id = event.get('trade_id')
+                exit_info = event.get('exit', {})
+                pnl = exit_info.get('pnl', 0)
+                trade_pnl_accum[trade_id] = trade_pnl_accum.get(trade_id, 0) + pnl
+
+                # Check if final exit
+                diagnostics = exit_info.get('diagnostics', {})
+                if diagnostics.get('exit_type') == 'full' or diagnostics.get('remaining_qty') == 0:
+                    if trade_id not in closed_trade_pnl:
+                        closed_trade_pnl[trade_id] = trade_pnl_accum.get(trade_id, 0)
+
+        closed_trades_count = len(closed_trade_pnl)
+        winners = sum(1 for pnl in closed_trade_pnl.values() if pnl > 0)
+        losers = sum(1 for pnl in closed_trade_pnl.values() if pnl <= 0)
 
         # Calculate capital used from open positions (entry_price * qty)
         capital_in_positions = sum(
@@ -448,10 +489,10 @@ class LocalDataReader:
             'total_pnl': total_pnl,
             'open_positions': open_positions,
             'open_position_count': len(open_positions),
-            'closed_trades': len(closed_trades),
+            'closed_trades': closed_trades_count,
             'winners': winners,
             'losers': losers,
-            'win_rate': (winners / len(closed_trades) * 100) if closed_trades else 0,
+            'win_rate': (winners / closed_trades_count * 100) if closed_trades_count else 0,
             'initial_capital': initial_capital,
             'capital_in_positions': capital_in_positions,
             'available_capital': available_capital,
