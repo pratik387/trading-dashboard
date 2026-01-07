@@ -52,34 +52,44 @@ def main():
         st.error(f"Failed to initialize local reader: {e}")
         return
 
-    # Config type selector and refresh button
-    col1, col2 = st.columns([3, 1])
+    # Sidebar - Config selection and refresh
+    with st.sidebar:
+        st.header("Config")
 
-    with col1:
         # Get available local config types
         available_configs = local_reader.list_config_types()
         if not available_configs:
-            st.error("No local data found. Make sure the dashboard is running on the trading VM.")
+            st.error("No local data found")
             st.info("Expected paths:\n- ~/intraday_fixed/\n- ~/intraday/\n- ~/intraday_1year/")
             return
 
         selected_config = st.selectbox(
-            "Config",
+            "📁 Config Type",
             available_configs,
             key="live_config_select"
         )
         local_reader.set_config_type(selected_config)
 
-    with col2:
-        st.write("")  # Spacer for alignment
-        if st.button("🔄 Refresh", key="live_refresh"):
+        # Show config description
+        if selected_config in CONFIG_DESCRIPTIONS:
+            st.caption(f"ℹ️ {CONFIG_DESCRIPTIONS[selected_config]}")
+
+        st.divider()
+
+        # Auto-refresh toggle
+        auto_refresh = st.toggle("Auto Refresh", value=False, key="auto_refresh")
+        if auto_refresh:
+            refresh_interval = st.select_slider(
+                "Interval",
+                options=[5, 10, 15, 30, 60],
+                value=15,
+                format_func=lambda x: f"{x}s",
+                key="refresh_interval"
+            )
+            st.caption(f"Refreshing every {refresh_interval} seconds")
+
+        if st.button("🔄 Refresh Now", use_container_width=True):
             st.rerun()
-
-    # Show config description
-    if selected_config in CONFIG_DESCRIPTIONS:
-        st.caption(f"ℹ️ {CONFIG_DESCRIPTIONS[selected_config]}")
-
-    st.divider()
 
     # Get today's run for selected config
     today_run = local_reader.get_today_run()
@@ -209,13 +219,11 @@ def main():
     # Last updated timestamp
     st.caption(f"Last updated: {summary.get('last_updated', 'Unknown')}")
 
-    # Debug info (collapsible)
-    with st.expander("Debug Info"):
-        st.text(f"Tick files path: {summary.get('tick_files_path', 'N/A')}")
-        st.text(f"Tick files found: {summary.get('tick_files_count', 0)}")
-        st.text(f"Symbols searched: {summary.get('symbols_searched', [])}")
-        st.text(f"Symbols matched: {summary.get('symbols_matched', [])}")
-        st.text(f"Ticks matched: {summary.get('ticks_found', 0)} / {len(summary.get('symbols_searched', []))}")
+    # Auto-refresh at the end (after content is rendered)
+    if auto_refresh:
+        import time
+        time.sleep(refresh_interval)
+        st.rerun()
 
 
 if __name__ == "__main__":
