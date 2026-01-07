@@ -4,7 +4,7 @@ Trading Dashboard API - FastAPI Backend
 
 REST API for trading data. Frontend-agnostic - works with:
 - Streamlit (current)
-- React/Next.js (future)
+- React/Next.js (frontend/)
 - Mobile apps (future)
 
 Bucket structure:
@@ -21,12 +21,21 @@ Run:
     uvicorn api:app --host 0.0.0.0 --port 8000
 
 Endpoints:
+    # Live Trading (LocalDataReader - VM filesystem)
+    GET  /api/live/config-types                         - List available config types
+    GET  /api/live/summary?config_type=fixed            - Get live trading summary
+    GET  /api/live/positions?config_type=fixed          - Get open positions
+    GET  /api/live/closed?config_type=fixed             - Get closed positions
+    GET  /api/live/events?config_type=fixed             - Get recent events
+
+    # Historical (OCIDataReader - Object Storage)
     GET  /api/config-types                              - List config types (fixed, relative, 1year)
     GET  /api/runs/{config_type}                        - List runs for a config type
     GET  /api/runs/{config_type}/{run_id}               - Get run details
     GET  /api/runs/{config_type}/{run_id}/summary       - Get run summary
     GET  /api/runs/{config_type}/{run_id}/analytics     - Get analytics data
     GET  /api/runs/{config_type}/{run_id}/events        - Get events data
+    GET  /api/runs/{config_type}/{run_id}/trades        - Get all trades
     GET  /api/runs/{config_type}/{run_id}/trades/{id}   - Get trade details
     GET  /api/runs/{config_type}/{run_id}/files         - List files in run
     GET  /api/runs/{config_type}/{run_id}/logs/agent    - Get agent log
@@ -41,6 +50,7 @@ import asyncio
 from datetime import datetime
 
 from oci_reader import OCIDataReader
+from local_reader import LocalDataReader
 
 # Initialize FastAPI
 app = FastAPI(
@@ -347,6 +357,88 @@ async def get_regime_analysis(config_type: str, run_id: str):
         return {"config_type": config_type, "run_id": run_id, "regimes": result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============ Live Trading Endpoints (Local Reader) ============
+
+# Cache local readers per config type
+local_readers: Dict[str, LocalDataReader] = {}
+
+def get_local_reader(config_type: str) -> LocalDataReader:
+    """Get or create a LocalDataReader for the given config type."""
+    if config_type not in local_readers:
+        local_readers[config_type] = LocalDataReader(config_type)
+    return local_readers[config_type]
+
+
+@app.get("/api/live/summary")
+async def get_live_summary(config_type: str = "fixed"):
+    """Get live trading summary (for VM during market hours)"""
+    try:
+        reader = get_local_reader(config_type)
+        summary = reader.get_live_summary()
+        return {"config_type": config_type, **summary}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/live/positions")
+async def get_live_positions(config_type: str = "fixed"):
+    """Get open positions for live trading"""
+    try:
+        reader = get_local_reader(config_type)
+        today_run = reader.get_today_run()
+        if not today_run:
+            return {"config_type": config_type, "positions": [], "error": "No active run today"}
+
+        positions = reader.get_open_positions(today_run['run_id'])
+
+        # Get latest ticks for unrealized PnL
+        symbols = [p['symbol'] for p in positions]
+        ticks = reader.get_latest_ticks(symbols) if symbols else {}
+        positions = reader.calculate_unrealized_pnl(positions, ticks)
+
+        return {"config_type": config_type, "run_id": today_run['run_id'], "positions": positions}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/live/closed")
+async def get_live_closed(config_type: str = "fixed"):
+    """Get closed positions for live trading"""
+    try:
+        reader = get_local_reader(config_type)
+        today_run = reader.get_today_run()
+        if not today_run:
+            return {"config_type": config_type, "positions": [], "error": "No active run today"}
+
+        positions = reader.get_closed_positions(today_run['run_id'])
+        return {"config_type": config_type, "run_id": today_run['run_id'], "positions": positions}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/live/events")
+async def get_live_events(config_type: str = "fixed", limit: int = 100):
+    """Get recent events for live trading"""
+    try:
+        reader = get_local_reader(config_type)
+        today_run = reader.get_today_run()
+        if not today_run:
+            return {"config_type": config_type, "events": [], "error": "No active run today"}
+
+        events = reader.get_events(today_run['run_id'])
+        # Return most recent events first, limited
+        events = sorted(events, key=lambda x: x.get('ts', ''), reverse=True)[:limit]
+        return {"config_type": config_type, "run_id": today_run['run_id'], "events": events, "count": len(events)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/live/config-types")
+async def get_live_config_types():
+    """Get available config types for live trading"""
+    return {"config_types": ["fixed", "relative", "1year"]}
 
 
 # ============ WebSocket for Live Updates ============
