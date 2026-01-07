@@ -115,3 +115,60 @@ export async function fetchRunTrades(configType: string, runId: string): Promise
   if (!res.ok) throw new Error("Failed to fetch trades");
   return res.json();
 }
+
+// Aggregate data across all runs
+export interface DailyData {
+  date: string;
+  run_id: string;
+  pnl: number;
+  trades: number;
+  winners: number;
+  losers: number;
+  win_rate: number;
+  cumulative_pnl: number;
+}
+
+export interface SetupStats {
+  setup: string;
+  trades: number;
+  pnl: number;
+  wins: number;
+  win_rate: number;
+  avg_pnl: number;
+}
+
+export interface AggregateData {
+  config_type: string;
+  days: number;
+  gross_pnl: number;
+  net_pnl: number;
+  total_pnl: number;
+  total_trades: number;
+  winners: number;
+  losers: number;
+  win_rate: number;
+  total_fees: number;
+  avg_pnl_per_day: number;
+  avg_pnl_per_trade: number;
+  by_setup: SetupStats[];
+  daily_data: DailyData[];
+  trades: ClosedPosition[];
+  date_from?: string;
+  date_to?: string;
+}
+
+export async function fetchAggregate(
+  configType: string,
+  dateFrom?: string,
+  dateTo?: string
+): Promise<AggregateData> {
+  let url = `${API_BASE}/api/runs/${configType}/aggregate`;
+  const params = new URLSearchParams();
+  if (dateFrom) params.append("date_from", dateFrom);
+  if (dateTo) params.append("date_to", dateTo);
+  if (params.toString()) url += `?${params.toString()}`;
+
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("Failed to fetch aggregate data");
+  return res.json();
+}

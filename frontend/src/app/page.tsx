@@ -4,13 +4,14 @@ import { useState, useEffect } from "react";
 import { MetricCard } from "@/components/MetricCard";
 import { OpenPositionsTable, ClosedPositionsTable } from "@/components/PositionsTable";
 import { formatINR, formatPct } from "@/lib/utils";
+import { useConfig } from "@/lib/ConfigContext";
 import { LiveSummary, ClosedPosition, fetchLiveSummary, fetchClosedPositions } from "@/lib/api";
 import { RefreshCw, Circle } from "lucide-react";
 
 export default function LiveTradingPage() {
+  const { configType } = useConfig();
   const [summary, setSummary] = useState<LiveSummary | null>(null);
   const [closedPositions, setClosedPositions] = useState<ClosedPosition[]>([]);
-  const [configType, setConfigType] = useState("fixed");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(false);
@@ -82,16 +83,6 @@ export default function LiveTradingPage() {
         </div>
 
         <div className="flex items-center gap-3">
-          <select
-            value={configType}
-            onChange={(e) => setConfigType(e.target.value)}
-            className="text-sm border rounded-lg px-3 py-2 bg-white dark:bg-gray-800"
-          >
-            <option value="fixed">Fixed (₹1K risk)</option>
-            <option value="relative">Relative (1% risk)</option>
-            <option value="1year">1 Year</option>
-          </select>
-
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"

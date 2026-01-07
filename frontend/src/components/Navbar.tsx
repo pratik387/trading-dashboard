@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { TrendingUp, History, Settings } from "lucide-react";
+import { useConfig } from "@/lib/ConfigContext";
+import { TrendingUp, History } from "lucide-react";
 
 const navItems = [
   { href: "/", label: "Live Trading", icon: TrendingUp },
@@ -12,6 +13,7 @@ const navItems = [
 
 export function Navbar() {
   const pathname = usePathname();
+  const { configType, setConfigType } = useConfig();
 
   return (
     <nav className="bg-white dark:bg-gray-900 border-b sticky top-0 z-50">
@@ -48,9 +50,13 @@ export function Navbar() {
           </div>
 
           <div className="flex items-center gap-2">
-            <select className="text-sm border rounded-lg px-3 py-1.5 bg-white dark:bg-gray-800">
-              <option value="fixed">Fixed</option>
-              <option value="relative">Relative</option>
+            <select
+              value={configType}
+              onChange={(e) => setConfigType(e.target.value as "fixed" | "relative" | "1year")}
+              className="text-sm border rounded-lg px-3 py-1.5 bg-white dark:bg-gray-800"
+            >
+              <option value="fixed">Fixed (₹1K)</option>
+              <option value="relative">Relative (1%)</option>
               <option value="1year">1 Year</option>
             </select>
           </div>
