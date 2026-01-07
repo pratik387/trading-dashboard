@@ -23,7 +23,9 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
+import time
 from oci_reader import OCIDataReader
+from local_reader import LocalDataReader
 
 st.set_page_config(
     page_title="Trading Dashboard",
@@ -60,6 +62,11 @@ st.markdown("""
 @st.cache_resource
 def get_reader():
     return OCIDataReader()
+
+
+@st.cache_resource
+def get_local_reader():
+    return LocalDataReader()
 
 
 @st.cache_data(ttl=300)
@@ -362,6 +369,151 @@ def render_trades_tab(agg: dict):
     st.dataframe(display_df, width='stretch', hide_index=True)
 
 
+def render_live_tab(local_reader: LocalDataReader):
+    st.header("🔴 Live Trading")
+
+    # Config type selector and auto-refresh controls
+    col1, col2, col3, col4 = st.columns([1.5, 1, 1, 1.5])
+
+    with col1:
+        # Get available local config types
+        available_configs = local_reader.list_config_types()
+        if not available_configs:
+            st.error("No local data found. Make sure the dashboard is running on the trading VM.")
+            st.info("Expected paths:\n- ~/intraday_fixed/\n- ~/intraday/\n- ~/intraday_1year/")
+            return
+
+        selected_config = st.selectbox(
+            "Config",
+            available_configs,
+            key="live_config_select"
+        )
+        local_reader.set_config_type(selected_config)
+
+    with col2:
+        auto_refresh = st.checkbox("Auto-refresh", value=True)
+    with col3:
+        refresh_interval = st.selectbox("Interval", [5, 10, 30, 60], index=1, format_func=lambda x: f"{x}s")
+    with col4:
+        if st.button("🔄 Refresh Now"):
+            st.rerun()
+
+    # Show config description
+    if selected_config in CONFIG_DESCRIPTIONS:
+        st.caption(f"ℹ️ {CONFIG_DESCRIPTIONS[selected_config]}")
+
+    st.divider()
+
+    # Get today's run for selected config
+    today_run = local_reader.get_today_run()
+    if not today_run:
+        st.warning(f"No active trading session today for '{selected_config}'")
+
+        # Show recent runs
+        runs = local_reader.list_runs(limit=5)
+        if runs:
+            st.subheader("Recent Sessions")
+            for run in runs:
+                st.text(f"• {run['run_id']} ({run['timestamp']})")
+        return
+
+    st.success(f"📊 Active Session: {today_run['run_id']} ({selected_config})")
+
+    # Get live summary
+    summary = local_reader.get_live_summary(today_run['run_id'])
+
+    if 'error' in summary:
+        st.error(summary['error'])
+        return
+
+    # Main metrics
+    st.subheader("💰 PnL Summary")
+    col1, col2, col3, col4 = st.columns(4)
+
+    total_pnl = summary['total_pnl']
+    realized_pnl = summary['realized_pnl']
+    unrealized_pnl = summary['unrealized_pnl']
+
+    col1.metric(
+        "Total PnL",
+        fmt_inr(total_pnl),
+        delta=f"{'↑' if total_pnl >= 0 else '↓'}"
+    )
+    col2.metric("Realized", fmt_inr(realized_pnl))
+    col3.metric("Unrealized", fmt_inr(unrealized_pnl))
+    col4.metric("Open Positions", summary['open_position_count'])
+
+    st.divider()
+
+    # Trade stats
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Closed Trades", summary['closed_trades'])
+    col2.metric("Winners", summary['winners'])
+    col3.metric("Losers", summary['losers'])
+    col4.metric("Win Rate", fmt_pct(summary['win_rate']))
+
+    st.divider()
+
+    # Open positions table
+    open_positions = summary.get('open_positions', [])
+    if open_positions:
+        st.subheader(f"📈 Open Positions ({len(open_positions)})")
+
+        pos_data = []
+        for pos in open_positions:
+            pos_data.append({
+                'Symbol': pos['symbol'],
+                'Side': pos['side'],
+                'Entry': pos['entry_price'],
+                'Current': pos.get('current_price', pos['entry_price']),
+                'Qty': pos.get('remaining_qty', pos['qty']),
+                'Unrealized PnL': pos.get('unrealized_pnl', 0),
+                'Change %': pos.get('price_change_pct', 0),
+                'Setup': pos.get('setup', ''),
+                'Entry Time': pos.get('entry_time', '')[:19] if pos.get('entry_time') else ''
+            })
+
+        df = pd.DataFrame(pos_data)
+
+        # Style the dataframe
+        def color_pnl(val):
+            if isinstance(val, (int, float)):
+                color = '#00c853' if val >= 0 else '#ff1744'
+                return f'color: {color}'
+            return ''
+
+        styled_df = df.style.applymap(color_pnl, subset=['Unrealized PnL', 'Change %'])
+        styled_df = styled_df.format({
+            'Entry': '₹{:.2f}',
+            'Current': '₹{:.2f}',
+            'Unrealized PnL': '₹{:,.2f}',
+            'Change %': '{:.2f}%'
+        })
+
+        st.dataframe(styled_df, width='stretch', hide_index=True)
+
+        # Position breakdown chart
+        if len(pos_data) > 1:
+            fig = px.bar(
+                df, x='Symbol', y='Unrealized PnL',
+                color='Unrealized PnL',
+                color_continuous_scale=['red', 'yellow', 'green'],
+                title='Unrealized PnL by Position'
+            )
+            fig.update_layout(template='plotly_white')
+            st.plotly_chart(fig, width='stretch')
+    else:
+        st.info("No open positions currently")
+
+    # Last updated timestamp
+    st.caption(f"Last updated: {summary.get('last_updated', 'Unknown')}")
+
+    # Auto-refresh logic
+    if auto_refresh:
+        time.sleep(refresh_interval)
+        st.rerun()
+
+
 def render_compare_tab(reader, config_types: list, date_from=None, date_to=None):
     st.header("🔄 Compare Configs")
 
@@ -626,9 +778,15 @@ def main():
         summaries = load_all_summaries(reader, selected_config, runs)
         agg = aggregate_summaries(summaries)
 
+    # Initialize local reader for live tab
+    try:
+        local_reader = get_local_reader()
+    except:
+        local_reader = None
+
     # Tabs
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "📊 Overview", "🎯 Setups", "📅 Daily", "📈 Trades", "🔄 Compare"
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+        "📊 Overview", "🎯 Setups", "📅 Daily", "📈 Trades", "🔄 Compare", "🔴 Live"
     ])
 
     with tab1:
@@ -641,6 +799,11 @@ def main():
         render_trades_tab(agg)
     with tab5:
         render_compare_tab(reader, config_types, date_from, date_to)
+    with tab6:
+        if local_reader:
+            render_live_tab(local_reader)
+        else:
+            st.error("Local reader not available")
 
 
 if __name__ == "__main__":
