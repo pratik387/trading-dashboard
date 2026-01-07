@@ -23,8 +23,8 @@ CONFIG_DESCRIPTIONS = {
 def fmt_inr(value):
     """Format number as Indian Rupees"""
     if value >= 0:
-        return f"₹{value:,.2f}"
-    return f"-₹{abs(value):,.2f}"
+        return f"₹{value:,.0f}"
+    return f"-₹{abs(value):,.0f}"
 
 
 def fmt_pct(value):
@@ -38,6 +38,17 @@ def get_local_reader():
 
 
 def main():
+    # Reduce metric font size to prevent truncation
+    st.markdown("""
+    <style>
+        [data-testid="stMetricValue"] {
+            font-size: 1.3rem;
+            overflow: visible !important;
+            white-space: nowrap !important;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+
     st.title("🔴 Live Trading")
 
     try:
