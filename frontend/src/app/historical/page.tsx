@@ -2,14 +2,13 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { MetricCard } from "@/components/MetricCard";
-import { ClosedPositionsTable } from "@/components/PositionsTable";
 import { formatINR, formatPct } from "@/lib/utils";
 import { useConfig } from "@/lib/ConfigContext";
 import {
   AggregateData,
-  DailyData,
+  HistoricalTrade,
   SetupStats,
-  ClosedPosition,
+  DailyData,
   fetchAggregate,
 } from "@/lib/api";
 import { History, RefreshCw, TrendingUp, Target, Calendar, BarChart3 } from "lucide-react";
@@ -296,7 +295,7 @@ function OverviewTab({ data }: { data: AggregateData }) {
 
 // ============ Setups Tab ============
 function SetupsTab({ data }: { data: AggregateData }) {
-  const setups = data.by_setup || [];
+  const setups: SetupStats[] = data.by_setup || [];
 
   if (setups.length === 0) {
     return <div className="text-center py-12 text-gray-500">No setup data available</div>;
@@ -426,7 +425,7 @@ function SetupsTab({ data }: { data: AggregateData }) {
 
 // ============ Daily Tab ============
 function DailyTab({ data }: { data: AggregateData }) {
-  const dailyData = [...(data.daily_data || [])].reverse(); // Most recent first
+  const dailyData: DailyData[] = [...(data.daily_data || [])].reverse(); // Most recent first
 
   if (dailyData.length === 0) {
     return <div className="text-center py-12 text-gray-500">No daily data available</div>;
@@ -483,7 +482,7 @@ function DailyTab({ data }: { data: AggregateData }) {
 
 // ============ Trades Tab ============
 function TradesTab({ data }: { data: AggregateData }) {
-  const trades = data.trades || [];
+  const trades: HistoricalTrade[] = data.trades || [];
 
   if (trades.length === 0) {
     return <div className="text-center py-12 text-gray-500">No trades data available</div>;
@@ -500,6 +499,7 @@ function TradesTab({ data }: { data: AggregateData }) {
 
   // PnL distribution histogram
   const histogramData = useMemo(() => {
+    if (pnlValues.length === 0) return [];
     const bins: { range: string; count: number }[] = [];
     const min = Math.min(...pnlValues);
     const max = Math.max(...pnlValues);
@@ -515,7 +515,7 @@ function TradesTab({ data }: { data: AggregateData }) {
       });
     }
     return bins;
-  }, [trades]);
+  }, [trades, pnlValues]);
 
   return (
     <div className="space-y-6">
@@ -530,26 +530,53 @@ function TradesTab({ data }: { data: AggregateData }) {
       </section>
 
       {/* PnL Distribution */}
-      <section>
-        <h3 className="text-md font-semibold mb-3">PnL Distribution</h3>
-        <div className="bg-white dark:bg-gray-800 rounded-lg border p-4 h-[250px]">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={histogramData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="range" fontSize={10} angle={-45} textAnchor="end" height={60} />
-              <YAxis />
-              <Tooltip />
-              <Bar dataKey="count" fill="#3b82f6" />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </section>
+      {histogramData.length > 0 && (
+        <section>
+          <h3 className="text-md font-semibold mb-3">PnL Distribution</h3>
+          <div className="bg-white dark:bg-gray-800 rounded-lg border p-4 h-[250px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={histogramData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="range" fontSize={10} angle={-45} textAnchor="end" height={60} />
+                <YAxis />
+                <Tooltip />
+                <Bar dataKey="count" fill="#3b82f6" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </section>
+      )}
 
       {/* Trades Table */}
       <section>
         <h3 className="text-md font-semibold mb-3">All Trades ({trades.length})</h3>
-        <div className="bg-white dark:bg-gray-800 rounded-lg border shadow-sm">
-          <ClosedPositionsTable positions={trades} />
+        <div className="bg-white dark:bg-gray-800 rounded-lg border shadow-sm overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 dark:bg-gray-900">
+              <tr>
+                <th className="px-4 py-3 text-left font-medium">Symbol</th>
+                <th className="px-4 py-3 text-left font-medium">Setup</th>
+                <th className="px-4 py-3 text-right font-medium">PnL</th>
+                <th className="px-4 py-3 text-left font-medium">Exit Reason</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+              {trades.map((t, idx) => (
+                <tr key={t.trade_id || idx} className="hover:bg-gray-50 dark:hover:bg-gray-900">
+                  <td className="px-4 py-3 font-medium">{t.symbol}</td>
+                  <td className="px-4 py-3">{t.setup}</td>
+                  <td
+                    className={`px-4 py-3 text-right font-medium ${
+                      t.pnl >= 0 ? "text-green-600" : "text-red-600"
+                    }`}
+                  >
+                    {formatINR(t.pnl)}
+                  </td>
+                  <td className="px-4 py-3">{t.exit_reason}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </section>
     </div>

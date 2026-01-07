@@ -137,6 +137,20 @@ export interface SetupStats {
   avg_pnl: number;
 }
 
+// Trade data from performance.json (historical aggregate)
+export interface HistoricalTrade {
+  symbol: string;
+  setup: string;
+  pnl: number;
+  exit_reason: string;
+  // Optional fields that may be present
+  trade_id?: string;
+  entry_price?: number;
+  exit_price?: number;
+  qty?: number;
+  side?: string;
+}
+
 export interface AggregateData {
   config_type: string;
   days: number;
@@ -152,7 +166,7 @@ export interface AggregateData {
   avg_pnl_per_trade: number;
   by_setup: SetupStats[];
   daily_data: DailyData[];
-  trades: ClosedPosition[];
+  trades: HistoricalTrade[];
   date_from?: string;
   date_to?: string;
 }
