@@ -122,6 +122,128 @@ async def list_runs(config_type: str, limit: int = 50):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/runs/{config_type}/aggregate")
+async def get_aggregate_summary(config_type: str, date_from: str = None, date_to: str = None):
+    """
+    Get aggregated summary across all runs for a config type.
+    Optionally filter by date range (YYYY-MM-DD format).
+    """
+    try:
+        reader = get_reader()
+        runs = reader.list_runs(config_type=config_type, limit=500)
+
+        # Filter by date range if provided
+        if date_from or date_to:
+            filtered_runs = []
+            for run in runs:
+                ts = run.get('timestamp')
+                if ts and ts != 'Unknown':
+                    try:
+                        run_date = ts[:10]  # YYYY-MM-DD
+                        if date_from and run_date < date_from:
+                            continue
+                        if date_to and run_date > date_to:
+                            continue
+                        filtered_runs.append(run)
+                    except:
+                        filtered_runs.append(run)
+            runs = filtered_runs
+
+        if not runs:
+            return {"config_type": config_type, "error": "No runs found", "days": 0}
+
+        # Aggregate all summaries
+        total_pnl = 0
+        total_trades = 0
+        total_winners = 0
+        total_losers = 0
+        total_fees = 0
+        all_trades = []
+        by_setup = {}
+        daily_data = []
+
+        for run in runs:
+            run_id = run['run_id']
+            summary = reader.get_run_summary(config_type, run_id)
+
+            total_pnl += summary.get('total_pnl', 0)
+            total_trades += summary.get('total_trades', 0)
+            total_winners += summary.get('winners', 0)
+            total_losers += summary.get('losers', 0)
+            total_fees += summary.get('total_fees', 0)
+
+            # Collect trades
+            all_trades.extend(summary.get('trades', []))
+
+            # Aggregate by setup
+            for setup, data in summary.get('by_setup', {}).items():
+                if setup not in by_setup:
+                    by_setup[setup] = {'pnl': 0, 'count': 0, 'wins': 0}
+                by_setup[setup]['pnl'] += data.get('pnl', 0)
+                by_setup[setup]['count'] += data.get('count', 0)
+                by_setup[setup]['wins'] += data.get('wins', 0)
+
+            # Daily data
+            daily_data.append({
+                'date': run.get('timestamp', 'Unknown'),
+                'run_id': run_id,
+                'pnl': summary.get('total_pnl', 0),
+                'trades': summary.get('total_trades', 0),
+                'winners': summary.get('winners', 0),
+                'losers': summary.get('losers', 0),
+                'win_rate': summary.get('win_rate', 0)
+            })
+
+        # Sort daily data by date
+        daily_data.sort(key=lambda x: x['date'])
+
+        # Calculate cumulative PnL
+        cumulative = 0
+        for d in daily_data:
+            cumulative += d['pnl']
+            d['cumulative_pnl'] = cumulative
+
+        gross_pnl = total_pnl + total_fees
+        net_pnl = total_pnl
+
+        # Format setup stats
+        setup_stats = []
+        for setup, data in by_setup.items():
+            win_rate = data['wins'] / data['count'] * 100 if data['count'] else 0
+            avg_pnl = data['pnl'] / data['count'] if data['count'] else 0
+            setup_stats.append({
+                'setup': setup,
+                'trades': data['count'],
+                'pnl': data['pnl'],
+                'wins': data['wins'],
+                'win_rate': win_rate,
+                'avg_pnl': avg_pnl
+            })
+        setup_stats.sort(key=lambda x: x['pnl'], reverse=True)
+
+        return {
+            "config_type": config_type,
+            "days": len(runs),
+            "gross_pnl": gross_pnl,
+            "net_pnl": net_pnl,
+            "total_pnl": total_pnl,
+            "total_trades": total_trades,
+            "winners": total_winners,
+            "losers": total_losers,
+            "win_rate": (total_winners / total_trades * 100) if total_trades else 0,
+            "total_fees": total_fees,
+            "avg_pnl_per_day": net_pnl / len(runs) if runs else 0,
+            "avg_pnl_per_trade": net_pnl / total_trades if total_trades else 0,
+            "by_setup": setup_stats,
+            "daily_data": daily_data,
+            "trades": all_trades,
+            "date_from": date_from,
+            "date_to": date_to
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/runs/{config_type}/{run_id}")
 async def get_run(config_type: str, run_id: str):
     """Get run metadata and performance"""
@@ -355,128 +477,6 @@ async def get_regime_analysis(config_type: str, run_id: str):
 
         result.sort(key=lambda x: x['pnl'], reverse=True)
         return {"config_type": config_type, "run_id": run_id, "regimes": result}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/api/runs/{config_type}/aggregate")
-async def get_aggregate_summary(config_type: str, date_from: str = None, date_to: str = None):
-    """
-    Get aggregated summary across all runs for a config type.
-    Optionally filter by date range (YYYY-MM-DD format).
-    """
-    try:
-        reader = get_reader()
-        runs = reader.list_runs(config_type=config_type, limit=500)
-
-        # Filter by date range if provided
-        if date_from or date_to:
-            filtered_runs = []
-            for run in runs:
-                ts = run.get('timestamp')
-                if ts and ts != 'Unknown':
-                    try:
-                        run_date = ts[:10]  # YYYY-MM-DD
-                        if date_from and run_date < date_from:
-                            continue
-                        if date_to and run_date > date_to:
-                            continue
-                        filtered_runs.append(run)
-                    except:
-                        filtered_runs.append(run)
-            runs = filtered_runs
-
-        if not runs:
-            return {"config_type": config_type, "error": "No runs found", "days": 0}
-
-        # Aggregate all summaries
-        total_pnl = 0
-        total_trades = 0
-        total_winners = 0
-        total_losers = 0
-        total_fees = 0
-        all_trades = []
-        by_setup = {}
-        daily_data = []
-
-        for run in runs:
-            run_id = run['run_id']
-            summary = reader.get_run_summary(config_type, run_id)
-
-            total_pnl += summary.get('total_pnl', 0)
-            total_trades += summary.get('total_trades', 0)
-            total_winners += summary.get('winners', 0)
-            total_losers += summary.get('losers', 0)
-            total_fees += summary.get('total_fees', 0)
-
-            # Collect trades
-            all_trades.extend(summary.get('trades', []))
-
-            # Aggregate by setup
-            for setup, data in summary.get('by_setup', {}).items():
-                if setup not in by_setup:
-                    by_setup[setup] = {'pnl': 0, 'count': 0, 'wins': 0}
-                by_setup[setup]['pnl'] += data.get('pnl', 0)
-                by_setup[setup]['count'] += data.get('count', 0)
-                by_setup[setup]['wins'] += data.get('wins', 0)
-
-            # Daily data
-            daily_data.append({
-                'date': run.get('timestamp', 'Unknown'),
-                'run_id': run_id,
-                'pnl': summary.get('total_pnl', 0),
-                'trades': summary.get('total_trades', 0),
-                'winners': summary.get('winners', 0),
-                'losers': summary.get('losers', 0),
-                'win_rate': summary.get('win_rate', 0)
-            })
-
-        # Sort daily data by date
-        daily_data.sort(key=lambda x: x['date'])
-
-        # Calculate cumulative PnL
-        cumulative = 0
-        for d in daily_data:
-            cumulative += d['pnl']
-            d['cumulative_pnl'] = cumulative
-
-        gross_pnl = total_pnl + total_fees
-        net_pnl = total_pnl
-
-        # Format setup stats
-        setup_stats = []
-        for setup, data in by_setup.items():
-            win_rate = data['wins'] / data['count'] * 100 if data['count'] else 0
-            avg_pnl = data['pnl'] / data['count'] if data['count'] else 0
-            setup_stats.append({
-                'setup': setup,
-                'trades': data['count'],
-                'pnl': data['pnl'],
-                'wins': data['wins'],
-                'win_rate': win_rate,
-                'avg_pnl': avg_pnl
-            })
-        setup_stats.sort(key=lambda x: x['pnl'], reverse=True)
-
-        return {
-            "config_type": config_type,
-            "days": len(runs),
-            "gross_pnl": gross_pnl,
-            "net_pnl": net_pnl,
-            "total_pnl": total_pnl,
-            "total_trades": total_trades,
-            "winners": total_winners,
-            "losers": total_losers,
-            "win_rate": (total_winners / total_trades * 100) if total_trades else 0,
-            "total_fees": total_fees,
-            "avg_pnl_per_day": net_pnl / len(runs) if runs else 0,
-            "avg_pnl_per_trade": net_pnl / total_trades if total_trades else 0,
-            "by_setup": setup_stats,
-            "daily_data": daily_data,
-            "trades": all_trades,
-            "date_from": date_from,
-            "date_to": date_to
-        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
