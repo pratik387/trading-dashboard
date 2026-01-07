@@ -46,6 +46,20 @@ st.markdown("""
     [data-baseweb="calendar"] {
         padding-top: 10px !important;
     }
+    /* Mobile responsiveness - stack columns on small screens */
+    @media (max-width: 768px) {
+        [data-testid="column"] {
+            width: 50% !important;
+            flex: 0 0 50% !important;
+            min-width: 50% !important;
+        }
+        [data-testid="stMetricValue"] {
+            font-size: 1.2rem;
+        }
+        [data-testid="stMetricLabel"] {
+            font-size: 0.8rem;
+        }
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -174,8 +188,8 @@ def render_overview_tab(agg: dict):
 
     # Main metrics - Gross and Net PnL
     col1, col2, col3, col4, col5, col6 = st.columns(6)
-    col1.metric("Gross PnL", fmt_inr(agg['gross_pnl']))
-    col2.metric("Net PnL", fmt_inr(agg['net_pnl']))
+    col1.metric("Gross PnL", fmt_inr(agg['gross_pnl']), help="Total profit before fees/charges")
+    col2.metric("Net PnL", fmt_inr(agg['net_pnl']), help="Profit after deducting fees (brokerage, STT, etc.)")
     col3.metric("Total Trades", agg['total_trades'])
     col4.metric("Win Rate", fmt_pct(agg['win_rate']))
     col5.metric("Trading Days", agg['days'])
@@ -186,7 +200,7 @@ def render_overview_tab(agg: dict):
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Winners", agg['total_winners'])
     col2.metric("Losers", agg['total_losers'])
-    col3.metric("Total Fees", fmt_inr(agg['total_fees']))
+    col3.metric("Total Fees", fmt_inr(agg['total_fees']), help="Brokerage, STT, transaction charges, etc.")
     col4.metric("Avg PnL/Trade", fmt_inr(agg['net_pnl'] / agg['total_trades']) if agg['total_trades'] else "N/A")
 
     st.divider()

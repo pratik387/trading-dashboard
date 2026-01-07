@@ -38,13 +38,27 @@ def get_local_reader():
 
 
 def main():
-    # Reduce metric font size to prevent truncation
+    # CSS for metric sizing and mobile responsiveness
     st.markdown("""
     <style>
         [data-testid="stMetricValue"] {
             font-size: 1.3rem;
             overflow: visible !important;
             white-space: nowrap !important;
+        }
+        /* Mobile responsiveness - stack columns on small screens */
+        @media (max-width: 768px) {
+            [data-testid="column"] {
+                width: 50% !important;
+                flex: 0 0 50% !important;
+                min-width: 50% !important;
+            }
+            [data-testid="stMetricValue"] {
+                font-size: 1.1rem;
+            }
+            [data-testid="stMetricLabel"] {
+                font-size: 0.8rem;
+            }
         }
     </style>
     """, unsafe_allow_html=True)
@@ -129,10 +143,11 @@ def main():
     col1.metric(
         "Total PnL",
         fmt_inr(total_pnl),
-        delta=f"{'↑' if total_pnl >= 0 else '↓'}"
+        delta=f"{'↑' if total_pnl >= 0 else '↓'}",
+        help="Realized + Unrealized PnL"
     )
-    col2.metric("Realized", fmt_inr(realized_pnl))
-    col3.metric("Unrealized", fmt_inr(unrealized_pnl))
+    col2.metric("Realized", fmt_inr(realized_pnl), help="Booked profit/loss from closed positions")
+    col3.metric("Unrealized", fmt_inr(unrealized_pnl), help="Paper profit/loss from open positions (changes with market)")
     col4.metric("Open Positions", summary['open_position_count'])
 
     st.divider()
@@ -206,7 +221,7 @@ def main():
             'PnL %': '{:+.2f}%'
         })
 
-        st.dataframe(styled_df, use_container_width=True, hide_index=True)
+        st.dataframe(styled_df, use_container_width=True, hide_index=True, selection_mode=None)
 
         # Position breakdown chart
         if len(pos_data) > 1:
@@ -264,7 +279,7 @@ def main():
             'PnL %': '{:+.2f}%'
         })
 
-        st.dataframe(styled_closed, use_container_width=True, hide_index=True)
+        st.dataframe(styled_closed, use_container_width=True, hide_index=True, selection_mode=None)
 
     # Last updated timestamp
     st.caption(f"Last updated: {summary.get('last_updated', 'Unknown')}")
