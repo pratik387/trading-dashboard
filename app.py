@@ -40,9 +40,9 @@ Welcome to the Trading Dashboard. Select a page from the sidebar:
 
 ### Config Types
 
-- **fixed** - Fixed SL/Target levels
-- **relative** - ATR-based SL/Target
-- **1year** - 1-year lookback for levels
+- **fixed** - Fixed ₹1,000 risk per trade | 3-year backtest (2023-2025)
+- **relative** - 1% capital risk per trade (₹5K for ₹5L) | 3-year backtest (2023-2025)
+- **1year** - Fixed ₹1,000 risk per trade | 1-year backtest (2025 only)
 """)
 
 st.divider()
