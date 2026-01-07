@@ -59,6 +59,10 @@ st.markdown("""
         [data-testid="stMetricLabel"] {
             font-size: 0.8rem;
         }
+        /* Hide broken dataframe toolbar on mobile */
+        [data-testid="stElementToolbar"] {
+            display: none !important;
+        }
     }
 </style>
 """, unsafe_allow_html=True)

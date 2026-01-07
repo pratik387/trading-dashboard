@@ -59,6 +59,10 @@ def main():
             [data-testid="stMetricLabel"] {
                 font-size: 0.8rem;
             }
+            /* Hide broken dataframe toolbar on mobile */
+            [data-testid="stElementToolbar"] {
+                display: none !important;
+            }
         }
     </style>
     """, unsafe_allow_html=True)
@@ -279,7 +283,22 @@ def main():
             'PnL %': '{:+.2f}%'
         })
 
-        st.dataframe(styled_closed, use_container_width=True, hide_index=True, selection_mode=None)
+        st.dataframe(
+            styled_closed,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Symbol": st.column_config.TextColumn(width="small"),
+                "Side": st.column_config.TextColumn(width="small"),
+                "Entry": st.column_config.NumberColumn(width="small"),
+                "Exit": st.column_config.NumberColumn(width="small"),
+                "Qty": st.column_config.NumberColumn(width="small"),
+                "PnL": st.column_config.NumberColumn(width="small"),
+                "PnL %": st.column_config.NumberColumn(width="small"),
+                "Reason": st.column_config.TextColumn(width="small"),
+                "Exit Time": st.column_config.TextColumn(width="medium"),
+            }
+        )
 
     # Last updated timestamp
     st.caption(f"Last updated: {summary.get('last_updated', 'Unknown')}")
