@@ -12,12 +12,6 @@ import plotly.express as px
 from datetime import datetime
 from local_reader import LocalDataReader
 
-st.set_page_config(
-    page_title="Live Trading",
-    page_icon="🔴",
-    layout="wide"
-)
-
 # Config descriptions
 CONFIG_DESCRIPTIONS = {
     'fixed': 'Fixed ₹1,000 risk per trade | 3-year backtest (2023-2025)',

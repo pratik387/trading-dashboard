@@ -2,7 +2,7 @@
 Trading Dashboard - Entry Point
 ===============================
 
-Redirects to Live Trading page on load.
+Uses st.navigation to control sidebar pages (hides main entry point).
 
 Run:
     streamlit run app.py --server.port 8501 --server.address 0.0.0.0
@@ -16,5 +16,12 @@ st.set_page_config(
     layout="wide"
 )
 
-# Auto-redirect to Live Trading
-st.switch_page("pages/1_Live_Trading.py")
+# Define pages - only these appear in sidebar
+pages = [
+    st.Page("pages/1_Live_Trading.py", title="Live Trading", icon="🔴", default=True),
+    st.Page("pages/2_Historical.py", title="Historical", icon="📈"),
+]
+
+# Navigation - renders sidebar and runs selected page
+nav = st.navigation(pages)
+nav.run()

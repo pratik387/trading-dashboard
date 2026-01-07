@@ -25,13 +25,6 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 from oci_reader import OCIDataReader
 
-st.set_page_config(
-    page_title="Trading Dashboard",
-    page_icon="📈",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
 st.markdown("""
 <style>
     .positive { color: #00c853; }
