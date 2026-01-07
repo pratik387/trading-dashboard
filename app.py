@@ -392,6 +392,8 @@ def render_live_tab(local_reader: LocalDataReader):
     with col2:
         st.write("")  # Spacer for alignment
         if st.button("🔄 Refresh", key="live_refresh"):
+            # Set query param to stay on Live tab after refresh
+            st.query_params["tab"] = "live"
             st.rerun()
 
     # Show config description
@@ -450,13 +452,20 @@ def render_live_tab(local_reader: LocalDataReader):
 
     st.divider()
 
-    # Capital usage
-    st.subheader("💵 Capital Usage")
+    # Capital usage (MIS leverage = 5x, so margin required = notional / 5)
+    MIS_LEVERAGE = 5
+    st.subheader("💵 Capital Usage (MIS 5x)")
+    notional_value = summary.get('capital_in_positions', 0)
+    margin_used = notional_value / MIS_LEVERAGE
+    initial_capital = summary.get('initial_capital', 0)
+    available_capital = initial_capital - margin_used
+    utilization_pct = (margin_used / initial_capital * 100) if initial_capital else 0
+
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Initial Capital", fmt_inr(summary.get('initial_capital', 0)))
-    col2.metric("In Positions", fmt_inr(summary.get('capital_in_positions', 0)))
-    col3.metric("Available", fmt_inr(summary.get('available_capital', 0)))
-    col4.metric("Utilization", fmt_pct(summary.get('capital_utilization_pct', 0)))
+    col1.metric("Initial Capital", fmt_inr(initial_capital))
+    col2.metric("Margin Used", fmt_inr(margin_used), help=f"Notional: {fmt_inr(notional_value)}")
+    col3.metric("Available", fmt_inr(available_capital))
+    col4.metric("Utilization", fmt_pct(utilization_pct))
 
     st.divider()
 
@@ -467,14 +476,21 @@ def render_live_tab(local_reader: LocalDataReader):
 
         pos_data = []
         for pos in open_positions:
+            # For price move, show raw % change
+            # For PnL move, flip sign for shorts (price up = loss for short)
+            price_change_pct = pos.get('price_change_pct', 0)
+            side = pos['side']
+            # PnL Move: positive means profit (accounts for direction)
+            pnl_move_pct = -price_change_pct if side == 'SELL' else price_change_pct
+
             pos_data.append({
                 'Symbol': pos['symbol'],
-                'Side': pos['side'],
+                'Side': '🔴 SHORT' if side == 'SELL' else '🟢 LONG',
                 'Entry': pos['entry_price'],
                 'Current': pos.get('current_price', pos['entry_price']),
                 'Qty': pos.get('remaining_qty', pos['qty']),
                 'Unrealized PnL': pos.get('unrealized_pnl', 0),
-                'Change %': pos.get('price_change_pct', 0),
+                'PnL %': pnl_move_pct,
                 'Setup': pos.get('setup', ''),
                 'Entry Time': pos.get('entry_time', '')[:19] if pos.get('entry_time') else ''
             })
@@ -488,12 +504,12 @@ def render_live_tab(local_reader: LocalDataReader):
                 return f'color: {color}'
             return ''
 
-        styled_df = df.style.map(color_pnl, subset=['Unrealized PnL', 'Change %'])
+        styled_df = df.style.map(color_pnl, subset=['Unrealized PnL', 'PnL %'])
         styled_df = styled_df.format({
             'Entry': '₹{:.2f}',
             'Current': '₹{:.2f}',
             'Unrealized PnL': '₹{:,.2f}',
-            'Change %': '{:.2f}%'
+            'PnL %': '{:+.2f}%'
         })
 
         st.dataframe(styled_df, width='stretch', hide_index=True)
@@ -793,26 +809,58 @@ def main():
     except:
         local_reader = None
 
-    # Tabs
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-        "📊 Overview", "🎯 Setups", "📅 Daily", "📈 Trades", "🔄 Compare", "🔴 Live"
-    ])
+    # Check if we should show Live tab (from refresh)
+    show_live_tab = st.query_params.get("tab") == "live"
+    if show_live_tab:
+        # Clear the query param after reading
+        st.query_params.clear()
+
+    # Tabs - show Live tab prominently if coming from refresh
+    tab_names = ["📊 Overview", "🎯 Setups", "📅 Daily", "📈 Trades", "🔄 Compare", "🔴 Live"]
+    if show_live_tab:
+        # Reorder to put Live first when refreshing from Live tab
+        tab6, tab1, tab2, tab3, tab4, tab5 = st.tabs([
+            "🔴 Live", "📊 Overview", "🎯 Setups", "📅 Daily", "📈 Trades", "🔄 Compare"
+        ])
+    else:
+        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(tab_names)
 
     with tab1:
-        render_overview_tab(agg)
-    with tab2:
-        render_setup_tab(agg)
-    with tab3:
-        render_daily_tab(agg, runs, reader, selected_config)
-    with tab4:
-        render_trades_tab(agg)
-    with tab5:
-        render_compare_tab(reader, config_types, date_from, date_to)
-    with tab6:
-        if local_reader:
-            render_live_tab(local_reader)
+        if show_live_tab:
+            if local_reader:
+                render_live_tab(local_reader)
+            else:
+                st.error("Local reader not available")
         else:
-            st.error("Local reader not available")
+            render_overview_tab(agg)
+    with tab2:
+        if show_live_tab:
+            render_overview_tab(agg)
+        else:
+            render_setup_tab(agg)
+    with tab3:
+        if show_live_tab:
+            render_setup_tab(agg)
+        else:
+            render_daily_tab(agg, runs, reader, selected_config)
+    with tab4:
+        if show_live_tab:
+            render_daily_tab(agg, runs, reader, selected_config)
+        else:
+            render_trades_tab(agg)
+    with tab5:
+        if show_live_tab:
+            render_trades_tab(agg)
+        else:
+            render_compare_tab(reader, config_types, date_from, date_to)
+    with tab6:
+        if show_live_tab:
+            render_compare_tab(reader, config_types, date_from, date_to)
+        else:
+            if local_reader:
+                render_live_tab(local_reader)
+            else:
+                st.error("Local reader not available")
 
 
 if __name__ == "__main__":
