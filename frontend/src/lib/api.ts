@@ -18,6 +18,14 @@ export interface LiveSummary {
   last_updated: string;
 }
 
+export interface PartialExit {
+  qty: number;
+  price: number;
+  pnl: number;
+  reason: string;
+  time: string;
+}
+
 export interface Position {
   trade_id: string;
   symbol: string;
@@ -25,11 +33,14 @@ export interface Position {
   current_price?: number;
   qty: number;
   remaining_qty?: number;
+  exited_qty?: number;
   side: string;
   setup: string;
   entry_time: string;
   unrealized_pnl?: number;
   price_change_pct?: number;
+  booked_pnl?: number;
+  partial_exits?: PartialExit[];
 }
 
 export interface ClosedPosition {

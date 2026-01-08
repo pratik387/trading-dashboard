@@ -175,7 +175,8 @@ class LocalDataReader:
         An open position is a TRIGGER event without a matching final EXIT.
 
         Returns:
-            List of open position dicts with trade_id, symbol, entry_price, qty, side
+            List of open position dicts with trade_id, symbol, entry_price, qty, side,
+            plus partial_exits array and booked_pnl for T1 hit positions
         """
         events = self.get_events(run_id)
         analytics = self.get_analytics(run_id)
@@ -202,13 +203,34 @@ class LocalDataReader:
             if record.get('is_final_exit'):
                 closed_trade_ids.add(record.get('trade_id'))
 
-        # Also check EXIT events for partial closes and final exits
+        # Track EXIT events for partial closes and final exits
         exit_qty = {}  # trade_id -> total exited qty
+        partial_exits = {}  # trade_id -> list of partial exit details
+        booked_pnl = {}  # trade_id -> total booked pnl from partial exits
+
         for event in events:
             if event.get('type') == 'EXIT':
                 trade_id = event.get('trade_id')
                 exit_info = event.get('exit', {})
-                exit_qty[trade_id] = exit_qty.get(trade_id, 0) + exit_info.get('qty', 0)
+                qty = exit_info.get('qty', 0)
+                pnl = exit_info.get('pnl', 0)
+                price = exit_info.get('price', 0)
+                reason = exit_info.get('reason', '')
+                ts = event.get('ts', '')
+
+                exit_qty[trade_id] = exit_qty.get(trade_id, 0) + qty
+                booked_pnl[trade_id] = booked_pnl.get(trade_id, 0) + pnl
+
+                # Track partial exit details
+                if trade_id not in partial_exits:
+                    partial_exits[trade_id] = []
+                partial_exits[trade_id].append({
+                    'qty': qty,
+                    'price': price,
+                    'pnl': pnl,
+                    'reason': reason,
+                    'time': ts
+                })
 
                 # Check if this is a final exit (from events.jsonl)
                 diagnostics = exit_info.get('diagnostics', {})
@@ -225,6 +247,8 @@ class LocalDataReader:
                 if remaining_qty > 0:
                     pos['remaining_qty'] = remaining_qty
                     pos['exited_qty'] = exited
+                    pos['booked_pnl'] = booked_pnl.get(trade_id, 0)
+                    pos['partial_exits'] = partial_exits.get(trade_id, [])
                     open_positions.append(pos)
 
         return open_positions

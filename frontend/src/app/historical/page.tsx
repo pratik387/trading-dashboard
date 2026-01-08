@@ -294,8 +294,8 @@ function SetupsTab({ data }: { data: AggregateData }) {
       {/* Setup Table */}
       <section>
         <h3 className="text-md font-semibold mb-3">Setup Performance</h3>
-        <div className="bg-white dark:bg-gray-800 rounded-lg border shadow-sm overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="bg-white dark:bg-gray-800 rounded-lg border shadow-sm overflow-x-auto">
+          <table className="w-full text-sm min-w-[600px]">
             <thead className="bg-gray-50 dark:bg-gray-900">
               <tr>
                 <th className="px-4 py-3 text-left font-medium">Setup</th>
