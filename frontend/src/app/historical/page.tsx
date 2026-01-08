@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
+import dynamic from "next/dynamic";
 import { MetricCard } from "@/components/MetricCard";
-import { formatINR, formatPct } from "@/lib/utils";
+import { formatINR } from "@/lib/utils";
 import { useConfig } from "@/lib/ConfigContext";
 import {
   AggregateData,
@@ -12,21 +13,37 @@ import {
   fetchAggregate,
 } from "@/lib/api";
 import { History, RefreshCw, TrendingUp, Target, Calendar, BarChart3 } from "lucide-react";
-import {
-  LineChart,
-  Line,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  Cell,
-  PieChart,
-  Pie,
-  Legend,
-} from "recharts";
+
+// Dynamic imports with SSR disabled - this is the key!
+const EquityCurveChart = dynamic(
+  () => import("@/components/Charts").then((mod) => mod.EquityCurveChart),
+  { ssr: false, loading: () => <div className="flex items-center justify-center h-full text-gray-400">Loading chart...</div> }
+);
+
+const DailyPnLChart = dynamic(
+  () => import("@/components/Charts").then((mod) => mod.DailyPnLChart),
+  { ssr: false, loading: () => <div className="flex items-center justify-center h-full text-gray-400">Loading chart...</div> }
+);
+
+const SetupPnLChart = dynamic(
+  () => import("@/components/Charts").then((mod) => mod.SetupPnLChart),
+  { ssr: false, loading: () => <div className="flex items-center justify-center h-full text-gray-400">Loading chart...</div> }
+);
+
+const TradeDistributionChart = dynamic(
+  () => import("@/components/Charts").then((mod) => mod.TradeDistributionChart),
+  { ssr: false, loading: () => <div className="flex items-center justify-center h-full text-gray-400">Loading chart...</div> }
+);
+
+const WinRateChart = dynamic(
+  () => import("@/components/Charts").then((mod) => mod.WinRateChart),
+  { ssr: false, loading: () => <div className="flex items-center justify-center h-full text-gray-400">Loading chart...</div> }
+);
+
+const PnLHistogramChart = dynamic(
+  () => import("@/components/Charts").then((mod) => mod.PnLHistogramChart),
+  { ssr: false, loading: () => <div className="flex items-center justify-center h-full text-gray-400">Loading chart...</div> }
+);
 
 type TabType = "overview" | "setups" | "daily" | "trades";
 
@@ -59,13 +76,6 @@ export default function HistoricalPage() {
   useEffect(() => {
     loadData();
   }, [configType]);
-
-  // Compute date range from data
-  const dateRange = useMemo(() => {
-    if (!data?.daily_data?.length) return { min: "", max: "" };
-    const dates = data.daily_data.map((d) => d.date.slice(0, 10)).sort();
-    return { min: dates[0], max: dates[dates.length - 1] };
-  }, [data]);
 
   const handleDateFilter = () => {
     loadData();
@@ -180,12 +190,7 @@ export default function HistoricalPage() {
 
 // ============ Overview Tab ============
 function OverviewTab({ data }: { data: AggregateData }) {
-  const dailyData: DailyData[] = data.daily_data || [];
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const dailyData = data.daily_data || [];
 
   return (
     <div className="space-y-6">
@@ -227,70 +232,21 @@ function OverviewTab({ data }: { data: AggregateData }) {
       </section>
 
       {/* Equity Curve */}
-      {mounted && dailyData.length > 0 && (
+      {dailyData.length > 0 && (
         <section>
           <h2 className="text-lg font-semibold mb-3">Equity Curve ({dailyData.length} days)</h2>
-          <div className="bg-white dark:bg-gray-800 rounded-lg border p-4" style={{ height: 300 }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={dailyData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis
-                  dataKey="date"
-                  tickFormatter={(v) => v.slice(5, 10)}
-                  fontSize={12}
-                />
-                <YAxis
-                  tickFormatter={(v) => `₹${(v / 1000).toFixed(0)}K`}
-                  fontSize={12}
-                />
-                <Tooltip
-                  formatter={(v: number) => [formatINR(v), "Cumulative PnL"]}
-                  labelFormatter={(l) => `Date: ${l}`}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="cumulative_pnl"
-                  stroke="#3b82f6"
-                  strokeWidth={2}
-                  dot={true}
-                />
-              </LineChart>
-            </ResponsiveContainer>
+          <div className="bg-white dark:bg-gray-800 rounded-lg border p-4 h-[300px]">
+            <EquityCurveChart data={dailyData} />
           </div>
         </section>
       )}
 
       {/* Daily PnL Bar Chart */}
-      {mounted && dailyData.length > 0 && (
+      {dailyData.length > 0 && (
         <section>
           <h2 className="text-lg font-semibold mb-3">Daily PnL</h2>
-          <div className="bg-white dark:bg-gray-800 rounded-lg border p-4" style={{ height: 300 }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={dailyData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis
-                  dataKey="date"
-                  tickFormatter={(v) => v.slice(5, 10)}
-                  fontSize={12}
-                />
-                <YAxis
-                  tickFormatter={(v) => `₹${(v / 1000).toFixed(0)}K`}
-                  fontSize={12}
-                />
-                <Tooltip
-                  formatter={(v: number) => [formatINR(v), "PnL"]}
-                  labelFormatter={(l) => `Date: ${l}`}
-                />
-                <Bar dataKey="pnl" fill="#3b82f6">
-                  {dailyData.map((entry, index) => (
-                    <Cell
-                      key={`cell-${index}`}
-                      fill={entry.pnl >= 0 ? "#22c55e" : "#ef4444"}
-                    />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+          <div className="bg-white dark:bg-gray-800 rounded-lg border p-4 h-[300px]">
+            <DailyPnLChart data={dailyData} />
           </div>
         </section>
       )}
@@ -300,12 +256,7 @@ function OverviewTab({ data }: { data: AggregateData }) {
 
 // ============ Setups Tab ============
 function SetupsTab({ data }: { data: AggregateData }) {
-  const setups: SetupStats[] = data.by_setup || [];
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const setups = data.by_setup || [];
 
   if (setups.length === 0) {
     return <div className="text-center py-12 text-gray-500">No setup data available</div>;
@@ -316,80 +267,29 @@ function SetupsTab({ data }: { data: AggregateData }) {
   return (
     <div className="space-y-6">
       {/* PnL by Setup Chart */}
-      {mounted && (
-        <>
-          <section className="grid md:grid-cols-2 gap-6">
-            <div>
-              <h3 className="text-md font-semibold mb-3">PnL by Setup</h3>
-              <div className="bg-white dark:bg-gray-800 rounded-lg border p-4 h-[300px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={setups} layout="vertical">
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis type="number" tickFormatter={(v) => `₹${(v / 1000).toFixed(0)}K`} />
-                    <YAxis type="category" dataKey="setup" width={100} fontSize={12} />
-                    <Tooltip formatter={(v: number) => [formatINR(v), "PnL"]} />
-                    <Bar dataKey="pnl">
-                      {setups.map((entry, index) => (
-                        <Cell
-                          key={`cell-${index}`}
-                          fill={entry.pnl >= 0 ? "#22c55e" : "#ef4444"}
-                        />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
+      <section className="grid md:grid-cols-2 gap-6">
+        <div>
+          <h3 className="text-md font-semibold mb-3">PnL by Setup</h3>
+          <div className="bg-white dark:bg-gray-800 rounded-lg border p-4 h-[300px]">
+            <SetupPnLChart data={setups} />
+          </div>
+        </div>
 
-            <div>
-              <h3 className="text-md font-semibold mb-3">Trade Distribution</h3>
-              <div className="bg-white dark:bg-gray-800 rounded-lg border p-4 h-[300px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={setups}
-                      dataKey="trades"
-                      nameKey="setup"
-                      cx="50%"
-                      cy="50%"
-                      outerRadius={80}
-                      label={(e) => e.setup}
-                    >
-                      {setups.map((_, index) => (
-                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          </section>
+        <div>
+          <h3 className="text-md font-semibold mb-3">Trade Distribution</h3>
+          <div className="bg-white dark:bg-gray-800 rounded-lg border p-4 h-[300px]">
+            <TradeDistributionChart data={setups} colors={COLORS} />
+          </div>
+        </div>
+      </section>
 
-          {/* Win Rate by Setup */}
-          <section>
-            <h3 className="text-md font-semibold mb-3">Win Rate by Setup</h3>
-            <div className="bg-white dark:bg-gray-800 rounded-lg border p-4 h-[250px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={setups}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="setup" fontSize={12} />
-                  <YAxis domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
-                  <Tooltip formatter={(v: number) => [`${v.toFixed(1)}%`, "Win Rate"]} />
-                  <Bar dataKey="win_rate">
-                    {setups.map((entry, index) => (
-                      <Cell
-                        key={`cell-${index}`}
-                        fill={entry.win_rate >= 50 ? "#22c55e" : "#ef4444"}
-                      />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </section>
-        </>
-      )}
+      {/* Win Rate by Setup */}
+      <section>
+        <h3 className="text-md font-semibold mb-3">Win Rate by Setup</h3>
+        <div className="bg-white dark:bg-gray-800 rounded-lg border p-4 h-[250px]">
+          <WinRateChart data={setups} />
+        </div>
+      </section>
 
       {/* Setup Table */}
       <section>
@@ -439,7 +339,7 @@ function SetupsTab({ data }: { data: AggregateData }) {
 
 // ============ Daily Tab ============
 function DailyTab({ data }: { data: AggregateData }) {
-  const dailyData: DailyData[] = [...(data.daily_data || [])].reverse(); // Most recent first
+  const dailyData = [...(data.daily_data || [])].reverse(); // Most recent first
 
   if (dailyData.length === 0) {
     return <div className="text-center py-12 text-gray-500">No daily data available</div>;
@@ -496,12 +396,7 @@ function DailyTab({ data }: { data: AggregateData }) {
 
 // ============ Trades Tab ============
 function TradesTab({ data }: { data: AggregateData }) {
-  const trades: HistoricalTrade[] = data.trades || [];
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const trades = data.trades || [];
 
   if (trades.length === 0) {
     return <div className="text-center py-12 text-gray-500">No trades data available</div>;
@@ -549,19 +444,11 @@ function TradesTab({ data }: { data: AggregateData }) {
       </section>
 
       {/* PnL Distribution */}
-      {mounted && histogramData.length > 0 && (
+      {histogramData.length > 0 && (
         <section>
           <h3 className="text-md font-semibold mb-3">PnL Distribution</h3>
           <div className="bg-white dark:bg-gray-800 rounded-lg border p-4 h-[250px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={histogramData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="range" fontSize={10} angle={-45} textAnchor="end" height={60} />
-                <YAxis />
-                <Tooltip />
-                <Bar dataKey="count" fill="#3b82f6" />
-              </BarChart>
-            </ResponsiveContainer>
+            <PnLHistogramChart data={histogramData} />
           </div>
         </section>
       )}
