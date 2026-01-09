@@ -29,7 +29,8 @@ export function OpenPositionsTable({ positions }: OpenPositionsTableProps) {
             <th className="py-3 px-2">Booked</th>
             <th className="py-3 px-2">Unrealized</th>
             <th className="py-3 px-2">Total PnL</th>
-            <th className="py-3 px-2 hidden md:table-cell">Setup</th>
+            <th className="py-3 px-2 hidden md:table-cell">Entry Time</th>
+            <th className="py-3 px-2 hidden lg:table-cell">T1 Exit</th>
           </tr>
         </thead>
         <tbody>
@@ -80,7 +81,12 @@ export function OpenPositionsTable({ positions }: OpenPositionsTableProps) {
                 <td className={cn("py-3 px-2 font-medium", totalPnl >= 0 ? "text-profit" : "text-loss")}>
                   {formatINR(totalPnl)}
                 </td>
-                <td className="py-3 px-2 hidden md:table-cell">{pos.setup}</td>
+                <td className="py-3 px-2 hidden md:table-cell">{formatTime(pos.entry_time)}</td>
+                <td className="py-3 px-2 hidden lg:table-cell">
+                  {hasPartialExit && pos.partial_exits?.[0]?.time
+                    ? formatTime(pos.partial_exits[0].time)
+                    : "-"}
+                </td>
               </tr>
             );
           })}
@@ -115,7 +121,8 @@ export function ClosedPositionsTable({ positions }: ClosedPositionsTableProps) {
             <th className="py-3 px-2">Qty</th>
             <th className="py-3 px-2">PnL</th>
             <th className="py-3 px-2">PnL %</th>
-            <th className="py-3 px-2 hidden md:table-cell">Reason</th>
+            <th className="py-3 px-2">Reason</th>
+            <th className="py-3 px-2 hidden md:table-cell">Entry Time</th>
             <th className="py-3 px-2 hidden lg:table-cell">Exit Time</th>
           </tr>
         </thead>
@@ -144,7 +151,8 @@ export function ClosedPositionsTable({ positions }: ClosedPositionsTableProps) {
                 <td className={cn("py-3 px-2", pnlPct >= 0 ? "text-profit" : "text-loss")}>
                   {formatPct(pnlPct)}
                 </td>
-                <td className="py-3 px-2 hidden md:table-cell">{pos.exit_reason}</td>
+                <td className="py-3 px-2">{pos.exit_reason}</td>
+                <td className="py-3 px-2 hidden md:table-cell">{formatTime(pos.entry_time)}</td>
                 <td className="py-3 px-2 hidden lg:table-cell">{formatTime(pos.exit_time)}</td>
               </tr>
             );

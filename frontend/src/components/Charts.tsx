@@ -73,8 +73,11 @@ export function EquityCurveChart({ data }: { data: DailyData[] }) {
   const yMin = minVal - padding;
   const yMax = maxVal + padding;
 
-  // Scale functions
-  const xScale = (i: number) => margin.left + (i / (sortedData.length - 1)) * innerWidth;
+  // Scale functions - handle single data point case
+  const xScale = (i: number) => {
+    if (sortedData.length <= 1) return margin.left + innerWidth / 2;
+    return margin.left + (i / (sortedData.length - 1)) * innerWidth;
+  };
   const yScale = (v: number) => margin.top + innerHeight - ((v - yMin) / (yMax - yMin)) * innerHeight;
 
   // Build path
@@ -140,14 +143,17 @@ export function DailyPnLChart({ data }: { data: DailyData[] }) {
   const innerHeight = height - margin.top - margin.bottom;
 
   const values = sortedData.map(d => d.pnl);
-  const maxAbs = Math.max(Math.abs(Math.min(...values)), Math.abs(Math.max(...values)));
+  const maxAbs = Math.max(Math.abs(Math.min(...values)), Math.abs(Math.max(...values))) || 1000;
   const yMax = maxAbs * 1.1;
   const yMin = -yMax;
 
-  const barWidth = innerWidth / sortedData.length * 0.7;
+  const barWidth = Math.min(innerWidth / sortedData.length * 0.7, innerWidth * 0.3);
   const barGap = innerWidth / sortedData.length * 0.15;
 
-  const xScale = (i: number) => margin.left + barGap + i * (innerWidth / sortedData.length);
+  const xScale = (i: number) => {
+    if (sortedData.length === 1) return margin.left + (innerWidth - barWidth) / 2;
+    return margin.left + barGap + i * (innerWidth / sortedData.length);
+  };
   const yScale = (v: number) => margin.top + innerHeight / 2 - (v / yMax) * (innerHeight / 2);
   const zeroY = margin.top + innerHeight / 2;
 
