@@ -221,6 +221,10 @@ async def get_aggregate_summary(config_type: str, date_from: str = None, date_to
             })
         setup_stats.sort(key=lambda x: x['pnl'], reverse=True)
 
+        # Get actual date range from data
+        actual_date_from = daily_data[0]['date'][:10] if daily_data else None
+        actual_date_to = daily_data[-1]['date'][:10] if daily_data else None
+
         return {
             "config_type": config_type,
             "days": len(runs),
@@ -237,8 +241,8 @@ async def get_aggregate_summary(config_type: str, date_from: str = None, date_to
             "by_setup": setup_stats,
             "daily_data": daily_data,
             "trades": all_trades,
-            "date_from": date_from,
-            "date_to": date_to
+            "date_from": actual_date_from,
+            "date_to": actual_date_to
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

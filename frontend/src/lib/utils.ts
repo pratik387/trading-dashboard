@@ -6,6 +6,7 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export function formatINR(value: number): string {
+  if (value == null || isNaN(value)) return "₹0.00";
   if (value >= 0) {
     return `₹${value.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   }
@@ -13,6 +14,7 @@ export function formatINR(value: number): string {
 }
 
 export function formatPct(value: number): string {
+  if (value == null || isNaN(value)) return "0.00%";
   return `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
 }
 

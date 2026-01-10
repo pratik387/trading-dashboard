@@ -56,16 +56,22 @@ export default function HistoricalPage() {
   const [dateFrom, setDateFrom] = useState<string>("");
   const [dateTo, setDateTo] = useState<string>("");
 
-  const loadData = async () => {
+  const loadData = async (resetFilters = false) => {
     try {
       setLoading(true);
       const result = await fetchAggregate(
         configType,
-        dateFrom || undefined,
-        dateTo || undefined
+        resetFilters ? undefined : dateFrom || undefined,
+        resetFilters ? undefined : dateTo || undefined
       );
       setData(result);
       setError(null);
+
+      // Set date inputs to actual data range if not filtered
+      if (resetFilters || (!dateFrom && !dateTo)) {
+        if (result.date_from) setDateFrom(result.date_from);
+        if (result.date_to) setDateTo(result.date_to);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load data");
     } finally {
@@ -74,7 +80,7 @@ export default function HistoricalPage() {
   };
 
   useEffect(() => {
-    loadData();
+    loadData(true);
   }, [configType]);
 
   const handleDateFilter = () => {
@@ -98,7 +104,16 @@ export default function HistoricalPage() {
             Historical Analysis
           </h1>
           <p className="text-sm text-gray-500 mt-1">
-            {data ? `${data.days} trading days` : "Loading..."}
+            {data ? (
+              <>
+                {data.days} trading days
+                {data.date_from && data.date_to && (
+                  <span className="ml-2">
+                    ({data.date_from} to {data.date_to})
+                  </span>
+                )}
+              </>
+            ) : "Loading..."}
           </p>
         </div>
 
@@ -163,7 +178,7 @@ export default function HistoricalPage() {
         <div className="text-center py-6">
           <p className="text-red-500">{error}</p>
           <button
-            onClick={loadData}
+            onClick={() => loadData()}
             className="mt-2 px-4 py-2 bg-blue-600 text-white rounded-lg"
           >
             Retry
