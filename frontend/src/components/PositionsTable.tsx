@@ -8,7 +8,7 @@ interface OpenPositionsTableProps {
 }
 
 export function OpenPositionsTable({ positions }: OpenPositionsTableProps) {
-  if (positions.length === 0) {
+  if (!positions || positions.length === 0) {
     return (
       <div className="text-center py-8 text-gray-500">
         No open positions currently
@@ -101,7 +101,7 @@ interface ClosedPositionsTableProps {
 }
 
 export function ClosedPositionsTable({ positions }: ClosedPositionsTableProps) {
-  if (positions.length === 0) {
+  if (!positions || positions.length === 0) {
     return (
       <div className="text-center py-8 text-gray-500">
         No closed positions today

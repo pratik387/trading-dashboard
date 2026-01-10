@@ -1,35 +1,54 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { MetricCard } from "@/components/MetricCard";
 import { OpenPositionsTable, ClosedPositionsTable } from "@/components/PositionsTable";
 import { formatINR, formatPct } from "@/lib/utils";
 import { useConfig } from "@/lib/ConfigContext";
 import { LiveSummary, ClosedPosition, fetchLiveSummary, fetchClosedPositions } from "@/lib/api";
-import { RefreshCw, Circle } from "lucide-react";
+import { RefreshCw, Circle, History } from "lucide-react";
 
 export default function LiveTradingPage() {
+  const router = useRouter();
   const { configType } = useConfig();
   const [summary, setSummary] = useState<LiveSummary | null>(null);
   const [closedPositions, setClosedPositions] = useState<ClosedPosition[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [noActiveSession, setNoActiveSession] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<string>("");
 
   const loadData = async () => {
     try {
       setLoading(true);
+      setNoActiveSession(false);
       const [summaryData, closedData] = await Promise.all([
         fetchLiveSummary(configType),
         fetchClosedPositions(configType),
       ]);
-      setSummary(summaryData);
-      setClosedPositions(closedData.positions || []);
+
+      // Check if there's no active session (no run_id or empty data)
+      if (!summaryData.run_id) {
+        setNoActiveSession(true);
+        setSummary(null);
+        setClosedPositions([]);
+      } else {
+        setSummary(summaryData);
+        setClosedPositions(closedData.positions || []);
+      }
       setLastUpdated(new Date().toLocaleTimeString());
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load data");
+      const errorMsg = err instanceof Error ? err.message : "Failed to load data";
+      // Check if error indicates no active session
+      if (errorMsg.includes("No active run") || errorMsg.includes("not found")) {
+        setNoActiveSession(true);
+        setError(null);
+      } else {
+        setError(errorMsg);
+      }
     } finally {
       setLoading(false);
     }
@@ -55,6 +74,37 @@ export default function LiveTradingPage() {
         >
           Retry
         </button>
+      </div>
+    );
+  }
+
+  if (noActiveSession) {
+    return (
+      <div className="text-center py-16">
+        <Circle className="w-16 h-16 mx-auto text-gray-300 mb-4" />
+        <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-300 mb-2">
+          No Active Session Today
+        </h2>
+        <p className="text-gray-500 mb-6">
+          No trading session for <span className="font-medium">{configType}</span> config.<br />
+          <span className="text-sm">This could be a non-trading day (weekend/holiday) or market is closed.</span>
+        </p>
+        <div className="flex justify-center gap-4">
+          <button
+            onClick={loadData}
+            className="px-4 py-2 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center gap-2"
+          >
+            <RefreshCw className="w-4 h-4" />
+            Refresh
+          </button>
+          <button
+            onClick={() => router.push("/historical")}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
+          >
+            <History className="w-4 h-4" />
+            View Historical Data
+          </button>
+        </div>
       </div>
     );
   }
