@@ -1,0 +1,22 @@
+{
+  "fixed": {
+    "port": 8081,
+    "type": "paper",
+    "description": "Fixed risk paper trading"
+  },
+  "relative": {
+    "port": 8082,
+    "type": "paper",
+    "description": "Relative risk paper trading"
+  },
+  "1year": {
+    "port": 8083,
+    "type": "paper",
+    "description": "1-year backtest config"
+  },
+  "live": {
+    "port": 8090,
+    "type": "live",
+    "description": "Live trading (admin only)"
+  }
+}

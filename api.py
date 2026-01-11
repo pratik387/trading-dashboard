@@ -21,6 +21,20 @@ Run:
     uvicorn api:app --host 0.0.0.0 --port 8000
 
 Endpoints:
+    # Engine Instances (real-time from health servers)
+    GET  /api/instances                                 - List all instances with status
+    GET  /api/instances/{instance}/health               - Get instance health
+    GET  /api/instances/{instance}/status               - Get full instance status
+    GET  /api/instances/{instance}/positions            - Get real-time positions
+
+    # Admin Controls (X-Admin-Token header required)
+    POST /api/instances/{instance}/admin/capital        - Set capital
+    POST /api/instances/{instance}/admin/mis            - Toggle MIS mode
+    POST /api/instances/{instance}/admin/exit           - Exit position
+    POST /api/instances/{instance}/admin/exit-all       - Exit all positions
+    POST /api/instances/{instance}/admin/pause          - Pause trading (no new entries)
+    POST /api/instances/{instance}/admin/resume         - Resume trading
+
     # Live Trading (LocalDataReader - VM filesystem)
     GET  /api/live/config-types                         - List available config types
     GET  /api/live/summary?config_type=fixed            - Get live trading summary
@@ -42,15 +56,76 @@ Endpoints:
     GET  /api/runs/{config_type}/{run_id}/logs/trade    - Get trade logs
 """
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Header
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Dict, Optional
 from pydantic import BaseModel
 import asyncio
+import httpx
+import os
+import json
 from datetime import datetime
+from pathlib import Path
 
 from oci_reader import OCIDataReader
 from local_reader import LocalDataReader
+
+
+# ============ Instance Registry ============
+# Maps instance names to their health server ports
+# Can be overridden by instances.json config file
+
+DEFAULT_INSTANCES = {
+    "fixed": {"port": 8081, "type": "paper", "description": "Fixed risk paper trading"},
+    "relative": {"port": 8082, "type": "paper", "description": "Relative risk paper trading"},
+    "1year": {"port": 8083, "type": "paper", "description": "1-year backtest config"},
+    "live": {"port": 8090, "type": "live", "description": "Live trading"},
+}
+
+def load_instances() -> Dict[str, Dict]:
+    """Load instance registry from config file or use defaults."""
+    config_path = Path(__file__).parent / "instances.json"
+    if config_path.exists():
+        try:
+            with open(config_path) as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"Warning: Failed to load instances.json: {e}")
+    return DEFAULT_INSTANCES
+
+INSTANCES = load_instances()
+
+
+async def proxy_to_engine(instance: str, path: str, method: str = "GET",
+                          body: Optional[dict] = None,
+                          admin_token: Optional[str] = None) -> dict:
+    """Proxy request to engine health server."""
+    if instance not in INSTANCES:
+        raise HTTPException(status_code=404, detail=f"Instance '{instance}' not found")
+
+    port = INSTANCES[instance]["port"]
+    url = f"http://localhost:{port}{path}"
+
+    headers = {}
+    if admin_token:
+        headers["X-Admin-Token"] = admin_token
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            if method == "GET":
+                response = await client.get(url, headers=headers)
+            elif method == "POST":
+                response = await client.post(url, json=body or {}, headers=headers)
+            else:
+                raise HTTPException(status_code=405, detail=f"Method {method} not allowed")
+
+            return response.json()
+        except httpx.ConnectError:
+            raise HTTPException(status_code=503, detail=f"Engine '{instance}' not reachable on port {port}")
+        except httpx.TimeoutException:
+            raise HTTPException(status_code=504, detail=f"Engine '{instance}' request timed out")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
 
 # Initialize FastAPI
 app = FastAPI(
@@ -609,6 +684,205 @@ async def websocket_live(websocket: WebSocket, config_type: str, run_id: str):
 
     except WebSocketDisconnect:
         manager.disconnect(websocket, key)
+
+
+# ============ Engine Instance Endpoints ============
+# Proxy to engine health servers for real-time data and admin controls
+
+class AdminRequest(BaseModel):
+    """Base model for admin requests"""
+    pass
+
+class CapitalRequest(AdminRequest):
+    capital: float
+
+class MISRequest(AdminRequest):
+    enabled: bool
+
+class ExitRequest(AdminRequest):
+    symbol: str
+    qty: Optional[int] = None  # None means full exit
+
+class ExitAllRequest(AdminRequest):
+    reason: str = "manual_exit"
+
+class PauseRequest(AdminRequest):
+    reason: str = "manual_pause"
+
+class ResumeRequest(AdminRequest):
+    pass
+
+
+@app.get("/api/instances")
+async def list_instances():
+    """List all configured engine instances with their status"""
+    results = []
+    for name, config in INSTANCES.items():
+        instance_info = {
+            "name": name,
+            "port": config["port"],
+            "type": config["type"],
+            "description": config.get("description", ""),
+            "status": "unknown"
+        }
+        # Try to get health status
+        try:
+            status = await proxy_to_engine(name, "/health")
+            instance_info["status"] = status.get("status", "unknown")
+            instance_info["state"] = status.get("state", "unknown")
+        except HTTPException:
+            instance_info["status"] = "offline"
+
+        results.append(instance_info)
+
+    return {"instances": results}
+
+
+@app.get("/api/instances/{instance}/health")
+async def get_instance_health(instance: str):
+    """Get health status from engine instance"""
+    return await proxy_to_engine(instance, "/health")
+
+
+@app.get("/api/instances/{instance}/status")
+async def get_instance_status(instance: str):
+    """Get full status from engine instance"""
+    return await proxy_to_engine(instance, "/status")
+
+
+@app.get("/api/instances/{instance}/positions")
+async def get_instance_positions(instance: str):
+    """Get open positions from engine instance"""
+    return await proxy_to_engine(instance, "/positions")
+
+
+# ============ Admin Endpoints (Token Protected) ============
+# These proxy to engine admin endpoints with token forwarding
+# Requires X-Admin-Token header for authentication
+
+@app.post("/api/instances/{instance}/admin/capital")
+async def set_instance_capital(
+    instance: str,
+    request: CapitalRequest,
+    x_admin_token: Optional[str] = Header(None)
+):
+    """Set capital for an engine instance (requires admin token)"""
+    if not x_admin_token:
+        raise HTTPException(status_code=401, detail="X-Admin-Token header required")
+
+    return await proxy_to_engine(
+        instance, "/admin/capital",
+        method="POST",
+        body={"capital": request.capital},
+        admin_token=x_admin_token
+    )
+
+
+@app.post("/api/instances/{instance}/admin/mis")
+async def toggle_instance_mis(
+    instance: str,
+    request: MISRequest,
+    x_admin_token: Optional[str] = Header(None)
+):
+    """Toggle MIS mode for an engine instance (requires admin token)"""
+    if not x_admin_token:
+        raise HTTPException(status_code=401, detail="X-Admin-Token header required")
+
+    return await proxy_to_engine(
+        instance, "/admin/mis",
+        method="POST",
+        body={"enabled": request.enabled},
+        admin_token=x_admin_token
+    )
+
+
+@app.post("/api/instances/{instance}/admin/exit")
+async def exit_instance_position(
+    instance: str,
+    request: ExitRequest,
+    x_admin_token: Optional[str] = Header(None)
+):
+    """Exit a position on an engine instance (requires admin token)"""
+    if not x_admin_token:
+        raise HTTPException(status_code=401, detail="X-Admin-Token header required")
+
+    body = {"symbol": request.symbol}
+    if request.qty is not None:
+        body["qty"] = request.qty
+
+    return await proxy_to_engine(
+        instance, "/admin/exit",
+        method="POST",
+        body=body,
+        admin_token=x_admin_token
+    )
+
+
+@app.post("/api/instances/{instance}/admin/exit-all")
+async def exit_all_instance_positions(
+    instance: str,
+    request: ExitAllRequest,
+    x_admin_token: Optional[str] = Header(None)
+):
+    """Exit all positions on an engine instance (requires admin token)"""
+    if not x_admin_token:
+        raise HTTPException(status_code=401, detail="X-Admin-Token header required")
+
+    return await proxy_to_engine(
+        instance, "/admin/exit-all",
+        method="POST",
+        body={"reason": request.reason},
+        admin_token=x_admin_token
+    )
+
+
+@app.post("/api/instances/{instance}/admin/pause")
+async def pause_instance_trading(
+    instance: str,
+    request: PauseRequest,
+    x_admin_token: Optional[str] = Header(None)
+):
+    """
+    Pause trading on an engine instance (requires admin token).
+
+    When paused:
+    - No new trade entries will be taken
+    - Tick processing and bar building continue
+    - Existing positions continue to be monitored
+    - Use /admin/resume to resume trading
+    """
+    if not x_admin_token:
+        raise HTTPException(status_code=401, detail="X-Admin-Token header required")
+
+    return await proxy_to_engine(
+        instance, "/admin/pause",
+        method="POST",
+        body={"reason": request.reason},
+        admin_token=x_admin_token
+    )
+
+
+@app.post("/api/instances/{instance}/admin/resume")
+async def resume_instance_trading(
+    instance: str,
+    request: ResumeRequest = ResumeRequest(),
+    x_admin_token: Optional[str] = Header(None)
+):
+    """
+    Resume trading on an engine instance (requires admin token).
+
+    Transitions from PAUSED state back to TRADING.
+    New trade entries will be taken again.
+    """
+    if not x_admin_token:
+        raise HTTPException(status_code=401, detail="X-Admin-Token header required")
+
+    return await proxy_to_engine(
+        instance, "/admin/resume",
+        method="POST",
+        body={},
+        admin_token=x_admin_token
+    )
 
 
 if __name__ == "__main__":

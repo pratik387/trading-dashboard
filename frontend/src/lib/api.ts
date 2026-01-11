@@ -193,3 +193,105 @@ export async function fetchAggregate(
   if (!res.ok) throw new Error("Failed to fetch aggregate data");
   return res.json();
 }
+
+// ============ Instance APIs (real-time from engine health servers) ============
+
+export interface Instance {
+  name: string;
+  port: number;
+  type: "paper" | "live";
+  description: string;
+  status: "ok" | "unhealthy" | "offline" | "unknown";
+  state?: string;
+}
+
+export interface InstanceStatus {
+  status: string;
+  state: string;
+  uptime_seconds: number;
+  positions_count: number;
+  unrealized_pnl: number;
+  capital: {
+    available: number;
+    margin_used: number;
+    total: number;
+    positions: number;
+    mis_enabled: boolean;
+  };
+  metrics: {
+    trades_entered: number;
+    trades_exited: number;
+    errors: number;
+    admin_actions: number;
+  };
+  admin_enabled: boolean;
+  timestamp: string;
+}
+
+export interface InstancePosition {
+  symbol: string;
+  side: string;
+  qty: number;
+  entry: number;
+  ltp?: number;
+  pnl?: number;
+  sl?: number;
+  t1?: number;
+  t2?: number;
+  t1_done?: boolean;
+}
+
+export async function fetchInstances(): Promise<{ instances: Instance[] }> {
+  const res = await fetch(`${API_BASE}/api/instances`);
+  if (!res.ok) throw new Error("Failed to fetch instances");
+  return res.json();
+}
+
+export async function fetchInstanceStatus(instance: string): Promise<InstanceStatus> {
+  const res = await fetch(`${API_BASE}/api/instances/${instance}/status`);
+  if (!res.ok) throw new Error(`Failed to fetch status for ${instance}`);
+  return res.json();
+}
+
+export async function fetchInstancePositions(instance: string): Promise<{ positions: InstancePosition[]; count: number; unrealized_pnl: number }> {
+  const res = await fetch(`${API_BASE}/api/instances/${instance}/positions`);
+  if (!res.ok) throw new Error(`Failed to fetch positions for ${instance}`);
+  return res.json();
+}
+
+// ============ Admin APIs (require X-Admin-Token header) ============
+
+async function adminRequest(instance: string, endpoint: string, body: object, token: string): Promise<any> {
+  const res = await fetch(`${API_BASE}/api/instances/${instance}/admin/${endpoint}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Admin-Token": token,
+    },
+    body: JSON.stringify(body),
+  });
+
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.detail || data.error || `Admin request failed: ${res.status}`);
+  }
+  return data;
+}
+
+export async function adminSetCapital(instance: string, capital: number, token: string): Promise<any> {
+  return adminRequest(instance, "capital", { capital }, token);
+}
+
+export async function adminToggleMIS(instance: string, enabled: boolean, token: string): Promise<any> {
+  return adminRequest(instance, "mis", { enabled }, token);
+}
+
+export async function adminExitPosition(instance: string, symbol: string, qty: number | null, token: string): Promise<any> {
+  const body: any = { symbol };
+  if (qty !== null) body.qty = qty;
+  return adminRequest(instance, "exit", body, token);
+}
+
+export async function adminExitAll(instance: string, reason: string, token: string): Promise<any> {
+  return adminRequest(instance, "exit-all", { reason }, token);
+}
