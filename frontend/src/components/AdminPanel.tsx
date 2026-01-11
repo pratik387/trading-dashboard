@@ -150,7 +150,7 @@ export function AdminPanel({ instance, status, positions, onRefresh }: AdminPane
   }
 
   // Admin enabled but instance doesn't support it
-  if (status && !status.admin_enabled) {
+  if (status && !status.auth_enabled) {
     return (
       <div className="bg-gray-50 dark:bg-gray-800 border rounded-lg p-4">
         <p className="text-sm text-gray-500">

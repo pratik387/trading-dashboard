@@ -224,7 +224,7 @@ export interface InstanceStatus {
     errors: number;
     admin_actions: number;
   };
-  admin_enabled: boolean;
+  auth_enabled: boolean;  // True when engine started with --admin-token flag
   timestamp: string;
 }
 
