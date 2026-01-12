@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { MetricCard } from "@/components/MetricCard";
 import { AdminPanel, ExitButton } from "@/components/AdminPanel";
-import { formatINR } from "@/lib/utils";
+import { cn, formatINR, formatPct, formatTime } from "@/lib/utils";
 import {
   Instance,
   InstanceStatus,
@@ -241,12 +241,12 @@ export default function InstancesPage() {
           {status.capital && (
             <section>
               <h2 className="text-lg font-semibold mb-3">💰 Engine Capital</h2>
-              {/* Warning if allocated capital exceeds DMAT balance */}
-              {brokerFunds && !brokerFunds.error && status.capital.total > brokerFunds.available_margin && (
+              {/* Warning if allocated capital exceeds total DMAT capacity (available + already used margin) */}
+              {brokerFunds && !brokerFunds.error && status.capital.total > (brokerFunds.available_margin + brokerFunds.used_margin) && (
                 <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 mb-3 flex items-center gap-2">
                   <AlertCircle className="w-5 h-5 text-orange-500 flex-shrink-0" />
                   <div className="text-sm text-orange-700">
-                    <span className="font-medium">Warning:</span> Allocated capital ({formatINR(status.capital.total)}) exceeds available DMAT margin ({formatINR(brokerFunds.available_margin)}). Orders may be rejected by broker.
+                    <span className="font-medium">Warning:</span> Allocated capital ({formatINR(status.capital.total)}) exceeds total DMAT capacity ({formatINR(brokerFunds.available_margin + brokerFunds.used_margin)}). Orders may be rejected by broker.
                   </div>
                 </div>
               )}
@@ -273,91 +273,102 @@ export default function InstancesPage() {
             </div>
           </section>
 
-          {/* Positions Table */}
+          {/* Positions Table - matches PositionsTable.tsx format */}
           <section>
             <h2 className="text-lg font-semibold mb-3">
               📈 Open Positions ({positions.length})
             </h2>
             <div className="bg-white dark:bg-gray-800 rounded-lg border shadow-sm overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50 dark:bg-gray-700">
-                  <tr>
-                    <th className="px-4 py-3 text-left">Symbol</th>
-                    <th className="px-4 py-3 text-left">Side</th>
-                    <th className="px-4 py-3 text-right">Qty</th>
-                    <th className="px-4 py-3 text-right">Entry</th>
-                    <th className="px-4 py-3 text-right">LTP</th>
-                    <th className="px-4 py-3 text-right">P&L</th>
-                    <th className="px-4 py-3 text-right">SL</th>
-                    <th className="px-4 py-3 text-right">Target</th>
+              <table className="w-full text-sm min-w-[700px]">
+                <thead>
+                  <tr className="border-b text-left text-gray-500">
+                    <th className="py-3 px-2">Symbol</th>
+                    <th className="py-3 px-2">Side</th>
+                    <th className="py-3 px-2">Entry</th>
+                    <th className="py-3 px-2">Current</th>
+                    <th className="py-3 px-2">Qty</th>
+                    <th className="py-3 px-2">Booked</th>
+                    <th className="py-3 px-2">Unrealized</th>
+                    <th className="py-3 px-2">Total PnL</th>
+                    <th className="py-3 px-2 hidden md:table-cell">Entry Time</th>
+                    <th className="py-3 px-2 hidden lg:table-cell">T1 Exit</th>
                     {isAdmin && selectedInstanceData?.type === "live" && (
-                      <th className="px-4 py-3 text-center">Action</th>
+                      <th className="py-3 px-2">Action</th>
                     )}
                   </tr>
                 </thead>
-                <tbody className="divide-y dark:divide-gray-700">
+                <tbody>
                   {positions.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="px-4 py-8 text-center text-gray-500">
+                      <td colSpan={11} className="py-8 text-center text-gray-500">
                         No open positions
                       </td>
                     </tr>
                   ) : (
-                    positions.map((pos) => (
-                      <tr key={pos.symbol} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                        <td className="px-4 py-3 font-medium">{pos.symbol}</td>
-                        <td className="px-4 py-3">
-                          <span
-                            className={`px-2 py-1 rounded text-xs ${
-                              pos.side === "BUY"
-                                ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
-                                : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
-                            }`}
-                          >
-                            {pos.side === "BUY" ? "LONG" : "SHORT"}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-right">{pos.qty}</td>
-                        <td className="px-4 py-3 text-right">{pos.entry.toFixed(2)}</td>
-                        <td className="px-4 py-3 text-right">{pos.ltp?.toFixed(2) || "-"}</td>
-                        <td
-                          className={`px-4 py-3 text-right font-medium ${
-                            (pos.pnl || 0) >= 0 ? "text-green-600" : "text-red-600"
-                          }`}
-                        >
-                          {pos.pnl ? formatINR(pos.pnl) : "-"}
-                        </td>
-                        <td className="px-4 py-3 text-right text-red-600">
-                          {pos.sl?.toFixed(2) || "-"}
-                        </td>
-                        <td className="px-4 py-3 text-right text-green-600">
-                          {pos.t1_done
-                            ? pos.t2?.toFixed(2) || "-"
-                            : pos.t1?.toFixed(2) || "-"}
-                          {pos.t1_done && <span className="text-xs text-gray-400 ml-1">(T2)</span>}
-                        </td>
-                        {isAdmin && selectedInstanceData?.type === "live" && (
-                          <td className="px-4 py-3 text-center">
-                            <ExitButton
-                              instance={selectedInstance}
-                              symbol={pos.symbol}
-                              qty={pos.qty}
-                              onSuccess={loadInstanceDetails}
-                            />
+                    positions.map((pos) => {
+                      const unrealizedPnl = pos.pnl || 0;
+                      const bookedPnl = pos.booked_pnl || 0;
+                      const totalPnl = unrealizedPnl + bookedPnl;
+                      const hasPartialExit = pos.t1_done || false;
+
+                      return (
+                        <tr key={pos.symbol} className="border-b hover:bg-gray-50 dark:hover:bg-gray-800">
+                          <td className="py-3 px-2 font-medium">
+                            {pos.symbol}
+                            {hasPartialExit && (
+                              <span className="ml-1 px-1.5 py-0.5 text-xs bg-blue-100 text-blue-700 rounded">
+                                T1
+                              </span>
+                            )}
                           </td>
-                        )}
-                      </tr>
-                    ))
+                          <td className="py-3 px-2">
+                            <span className={cn(
+                              "px-2 py-1 rounded text-xs font-medium",
+                              pos.side === "SELL" ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700"
+                            )}>
+                              {pos.side === "SELL" ? "SHORT" : "LONG"}
+                            </span>
+                          </td>
+                          <td className="py-3 px-2">{formatINR(pos.entry)}</td>
+                          <td className="py-3 px-2">{formatINR(pos.ltp || pos.entry)}</td>
+                          <td className="py-3 px-2">{pos.qty}</td>
+                          <td className={cn("py-3 px-2", bookedPnl !== 0 ? (bookedPnl >= 0 ? "text-green-600" : "text-red-600") : "text-gray-400")}>
+                            {bookedPnl !== 0 ? formatINR(bookedPnl) : "-"}
+                          </td>
+                          <td className={cn("py-3 px-2", unrealizedPnl >= 0 ? "text-green-600" : "text-red-600")}>
+                            {formatINR(unrealizedPnl)}
+                          </td>
+                          <td className={cn("py-3 px-2 font-medium", totalPnl >= 0 ? "text-green-600" : "text-red-600")}>
+                            {formatINR(totalPnl)}
+                          </td>
+                          <td className="py-3 px-2 hidden md:table-cell">{pos.entry_time ? formatTime(pos.entry_time) : "-"}</td>
+                          <td className="py-3 px-2 hidden lg:table-cell">
+                            {hasPartialExit && pos.t1_exit_time ? formatTime(pos.t1_exit_time) : "-"}
+                          </td>
+                          {isAdmin && selectedInstanceData?.type === "live" && (
+                            <td className="py-3 px-2">
+                              <ExitButton
+                                instance={selectedInstance}
+                                symbol={pos.symbol}
+                                qty={pos.qty}
+                                t1Done={pos.t1_done}
+                                onSuccess={loadInstanceDetails}
+                              />
+                            </td>
+                          )}
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>
             </div>
           </section>
 
-          {/* Closed Trades Table */}
+          {/* Closed Trades Table - matches ClosedPositionsTable format */}
           <section>
             <h2 className="text-lg font-semibold mb-3">
-              📊 Closed Trades ({closedTrades?.count || 0})
+              ✅ Closed Positions ({closedTrades?.count || 0})
               {closedTrades && closedTrades.count > 0 && (
                 <span className={`ml-2 text-sm font-normal ${closedTrades.total_pnl >= 0 ? "text-green-600" : "text-red-600"}`}>
                   {formatINR(closedTrades.total_pnl)} • {closedTrades.win_rate}% WR
@@ -365,57 +376,59 @@ export default function InstancesPage() {
               )}
             </h2>
             <div className="bg-white dark:bg-gray-800 rounded-lg border shadow-sm overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50 dark:bg-gray-700">
-                  <tr>
-                    <th className="px-4 py-3 text-left">Symbol</th>
-                    <th className="px-4 py-3 text-left">Setup</th>
-                    <th className="px-4 py-3 text-left">Side</th>
-                    <th className="px-4 py-3 text-right">Qty</th>
-                    <th className="px-4 py-3 text-right">Entry</th>
-                    <th className="px-4 py-3 text-right">Exit</th>
-                    <th className="px-4 py-3 text-right">P&L</th>
-                    <th className="px-4 py-3 text-left">Exit Reason</th>
+              <table className="w-full text-sm min-w-[600px]">
+                <thead>
+                  <tr className="border-b text-left text-gray-500">
+                    <th className="py-3 px-2">Symbol</th>
+                    <th className="py-3 px-2">Side</th>
+                    <th className="py-3 px-2">Entry</th>
+                    <th className="py-3 px-2">Exit</th>
+                    <th className="py-3 px-2">Qty</th>
+                    <th className="py-3 px-2">PnL</th>
+                    <th className="py-3 px-2">PnL %</th>
+                    <th className="py-3 px-2">Reason</th>
+                    <th className="py-3 px-2 hidden md:table-cell">Entry Time</th>
+                    <th className="py-3 px-2 hidden lg:table-cell">Exit Time</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y dark:divide-gray-700">
+                <tbody>
                   {(!closedTrades || closedTrades.trades.length === 0) ? (
                     <tr>
-                      <td colSpan={8} className="px-4 py-8 text-center text-gray-500">
-                        No closed trades this session
+                      <td colSpan={10} className="py-8 text-center text-gray-500">
+                        No closed positions this session
                       </td>
                     </tr>
                   ) : (
-                    closedTrades.trades.map((trade, idx) => (
-                      <tr key={`${trade.symbol}-${idx}`} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                        <td className="px-4 py-3 font-medium">{trade.symbol}</td>
-                        <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{trade.setup}</td>
-                        <td className="px-4 py-3">
-                          <span
-                            className={`px-2 py-1 rounded text-xs ${
-                              trade.side === "BUY"
-                                ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
-                                : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
-                            }`}
-                          >
-                            {trade.side === "BUY" ? "LONG" : "SHORT"}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-right">{trade.qty}</td>
-                        <td className="px-4 py-3 text-right">{trade.entry_price.toFixed(2)}</td>
-                        <td className="px-4 py-3 text-right">{trade.exit_price.toFixed(2)}</td>
-                        <td
-                          className={`px-4 py-3 text-right font-medium ${
-                            trade.pnl >= 0 ? "text-green-600" : "text-red-600"
-                          }`}
-                        >
-                          {formatINR(trade.pnl)}
-                        </td>
-                        <td className="px-4 py-3 text-gray-600 dark:text-gray-400 text-xs">
-                          {trade.exit_reason}
-                        </td>
-                      </tr>
-                    ))
+                    closedTrades.trades.map((trade, idx) => {
+                      const positionCost = trade.entry_price * trade.qty;
+                      const pnlPct = positionCost > 0 ? (trade.pnl / positionCost) * 100 : 0;
+
+                      return (
+                        <tr key={`${trade.symbol}-${idx}`} className="border-b hover:bg-gray-50 dark:hover:bg-gray-800">
+                          <td className="py-3 px-2 font-medium">{trade.symbol}</td>
+                          <td className="py-3 px-2">
+                            <span className={cn(
+                              "px-2 py-1 rounded text-xs font-medium",
+                              trade.side === "SELL" ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700"
+                            )}>
+                              {trade.side === "SELL" ? "SHORT" : "LONG"}
+                            </span>
+                          </td>
+                          <td className="py-3 px-2">{formatINR(trade.entry_price)}</td>
+                          <td className="py-3 px-2">{formatINR(trade.exit_price)}</td>
+                          <td className="py-3 px-2">{trade.qty}</td>
+                          <td className={cn("py-3 px-2 font-medium", trade.pnl >= 0 ? "text-green-600" : "text-red-600")}>
+                            {formatINR(trade.pnl)}
+                          </td>
+                          <td className={cn("py-3 px-2", pnlPct >= 0 ? "text-green-600" : "text-red-600")}>
+                            {formatPct(pnlPct)}
+                          </td>
+                          <td className="py-3 px-2">{trade.exit_reason}</td>
+                          <td className="py-3 px-2 hidden md:table-cell">{trade.entry_time ? formatTime(trade.entry_time) : "-"}</td>
+                          <td className="py-3 px-2 hidden lg:table-cell">{trade.exit_time ? formatTime(trade.exit_time) : "-"}</td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>

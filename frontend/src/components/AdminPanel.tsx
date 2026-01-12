@@ -14,7 +14,7 @@ import {
   adminResume,
 } from "@/lib/api";
 import { formatINR } from "@/lib/utils";
-import { Key, LogOut, DollarSign, ToggleLeft, ToggleRight, X, AlertTriangle, Pause, Play } from "lucide-react";
+import { Key, LogOut, IndianRupee, ToggleLeft, ToggleRight, X, AlertTriangle, Pause, Play } from "lucide-react";
 
 interface AdminPanelProps {
   instance: string;
@@ -259,7 +259,7 @@ export function AdminPanel({ instance, status, positions, brokerFunds, onRefresh
       {/* Capital Control */}
       <div className="space-y-2">
         <div className="flex items-center gap-2">
-          <DollarSign className="w-4 h-4 text-blue-600" />
+          <IndianRupee className="w-4 h-4 text-blue-600" />
           <input
             type="number"
             value={capitalInput}
@@ -353,11 +353,13 @@ export function ExitButton({
   instance,
   symbol,
   qty,
+  t1Done,
   onSuccess,
 }: {
   instance: string;
   symbol: string;
   qty: number;
+  t1Done?: boolean;  // If true, only show Full exit (50% already taken)
   onSuccess: () => void;
 }) {
   const { adminToken, isAdmin } = useAdmin();
@@ -380,17 +382,22 @@ export function ExitButton({
     }
   };
 
+  // If T1 already taken, only show Full exit option
+  const canPartialExit = !t1Done;
+
   return (
     <div className="relative">
       {showPartial ? (
         <div className="flex gap-1">
-          <button
-            onClick={() => handleExit(Math.floor(qty / 2))}
-            disabled={loading}
-            className="px-2 py-1 text-xs bg-orange-100 text-orange-700 rounded hover:bg-orange-200 disabled:opacity-50"
-          >
-            50%
-          </button>
+          {canPartialExit && (
+            <button
+              onClick={() => handleExit(Math.floor(qty / 2))}
+              disabled={loading}
+              className="px-2 py-1 text-xs bg-orange-100 text-orange-700 rounded hover:bg-orange-200 disabled:opacity-50"
+            >
+              50%
+            </button>
+          )}
           <button
             onClick={() => handleExit(null)}
             disabled={loading}

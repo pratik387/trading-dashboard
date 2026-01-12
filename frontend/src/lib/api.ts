@@ -239,6 +239,10 @@ export interface InstancePosition {
   t1?: number;
   t2?: number;
   t1_done?: boolean;
+  exit_options?: string[];  // ["partial", "full"] or ["full"] after T1 taken
+  booked_pnl?: number;      // PnL from partial exits (T1)
+  entry_time?: string;      // Entry timestamp
+  t1_exit_time?: string;    // T1 exit timestamp
 }
 
 export async function fetchInstances(): Promise<{ instances: Instance[] }> {
