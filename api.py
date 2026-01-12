@@ -762,6 +762,12 @@ async def get_instance_funds(instance: str):
     return await proxy_to_engine(instance, "/funds")
 
 
+@app.get("/api/instances/{instance}/closed")
+async def get_instance_closed_trades(instance: str):
+    """Get closed trades for this session"""
+    return await proxy_to_engine(instance, "/closed")
+
+
 # ============ Admin Endpoints (Token Protected) ============
 # These proxy to engine admin endpoints with token forwarding
 # Requires X-Admin-Token header for authentication

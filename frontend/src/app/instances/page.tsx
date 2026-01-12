@@ -9,10 +9,13 @@ import {
   InstanceStatus,
   InstancePosition,
   BrokerFunds,
+  ClosedTrade,
+  ClosedTradesResponse,
   fetchInstances,
   fetchInstanceStatus,
   fetchInstancePositions,
   fetchInstanceFunds,
+  fetchInstanceClosedTrades,
 } from "@/lib/api";
 import { useAdmin } from "@/lib/AdminContext";
 import { RefreshCw, Circle, Server, Activity, AlertCircle } from "lucide-react";
@@ -23,6 +26,7 @@ export default function InstancesPage() {
   const [selectedInstance, setSelectedInstance] = useState<string | null>(null);
   const [status, setStatus] = useState<InstanceStatus | null>(null);
   const [positions, setPositions] = useState<InstancePosition[]>([]);
+  const [closedTrades, setClosedTrades] = useState<ClosedTradesResponse | null>(null);
   const [brokerFunds, setBrokerFunds] = useState<BrokerFunds | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -50,14 +54,16 @@ export default function InstancesPage() {
 
     try {
       setLoading(true);
-      const [statusData, positionsData, fundsData] = await Promise.all([
+      const [statusData, positionsData, fundsData, closedData] = await Promise.all([
         fetchInstanceStatus(selectedInstance),
         fetchInstancePositions(selectedInstance),
         fetchInstanceFunds(selectedInstance).catch(() => ({ status: "error", funds: null })),
+        fetchInstanceClosedTrades(selectedInstance).catch(() => ({ trades: [], count: 0, total_pnl: 0, winners: 0, losers: 0, win_rate: 0 })),
       ]);
       setStatus(statusData);
       setPositions(positionsData.positions || []);
       setBrokerFunds(fundsData.funds);
+      setClosedTrades(closedData);
       setLastUpdated(new Date().toLocaleTimeString());
       setError(null);
     } catch (err) {
@@ -65,6 +71,7 @@ export default function InstancesPage() {
       setStatus(null);
       setPositions([]);
       setBrokerFunds(null);
+      setClosedTrades(null);
     } finally {
       setLoading(false);
     }
@@ -339,6 +346,74 @@ export default function InstancesPage() {
                             />
                           </td>
                         )}
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          {/* Closed Trades Table */}
+          <section>
+            <h2 className="text-lg font-semibold mb-3">
+              📊 Closed Trades ({closedTrades?.count || 0})
+              {closedTrades && closedTrades.count > 0 && (
+                <span className={`ml-2 text-sm font-normal ${closedTrades.total_pnl >= 0 ? "text-green-600" : "text-red-600"}`}>
+                  {formatINR(closedTrades.total_pnl)} • {closedTrades.win_rate}% WR
+                </span>
+              )}
+            </h2>
+            <div className="bg-white dark:bg-gray-800 rounded-lg border shadow-sm overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 dark:bg-gray-700">
+                  <tr>
+                    <th className="px-4 py-3 text-left">Symbol</th>
+                    <th className="px-4 py-3 text-left">Setup</th>
+                    <th className="px-4 py-3 text-left">Side</th>
+                    <th className="px-4 py-3 text-right">Qty</th>
+                    <th className="px-4 py-3 text-right">Entry</th>
+                    <th className="px-4 py-3 text-right">Exit</th>
+                    <th className="px-4 py-3 text-right">P&L</th>
+                    <th className="px-4 py-3 text-left">Exit Reason</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y dark:divide-gray-700">
+                  {(!closedTrades || closedTrades.trades.length === 0) ? (
+                    <tr>
+                      <td colSpan={8} className="px-4 py-8 text-center text-gray-500">
+                        No closed trades this session
+                      </td>
+                    </tr>
+                  ) : (
+                    closedTrades.trades.map((trade, idx) => (
+                      <tr key={`${trade.symbol}-${idx}`} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                        <td className="px-4 py-3 font-medium">{trade.symbol}</td>
+                        <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{trade.setup}</td>
+                        <td className="px-4 py-3">
+                          <span
+                            className={`px-2 py-1 rounded text-xs ${
+                              trade.side === "BUY"
+                                ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                                : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+                            }`}
+                          >
+                            {trade.side === "BUY" ? "LONG" : "SHORT"}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right">{trade.qty}</td>
+                        <td className="px-4 py-3 text-right">{trade.entry_price.toFixed(2)}</td>
+                        <td className="px-4 py-3 text-right">{trade.exit_price.toFixed(2)}</td>
+                        <td
+                          className={`px-4 py-3 text-right font-medium ${
+                            trade.pnl >= 0 ? "text-green-600" : "text-red-600"
+                          }`}
+                        >
+                          {formatINR(trade.pnl)}
+                        </td>
+                        <td className="px-4 py-3 text-gray-600 dark:text-gray-400 text-xs">
+                          {trade.exit_reason}
+                        </td>
                       </tr>
                     ))
                   )}

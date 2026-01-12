@@ -273,6 +273,34 @@ export async function fetchInstanceFunds(instance: string): Promise<{ status: st
   return res.json();
 }
 
+export interface ClosedTrade {
+  symbol: string;
+  side: string;
+  qty: number;
+  entry_price: number;
+  exit_price: number;
+  pnl: number;
+  exit_reason: string;
+  setup: string;
+  exit_time?: string;
+  entry_time?: string;
+}
+
+export interface ClosedTradesResponse {
+  trades: ClosedTrade[];
+  count: number;
+  total_pnl: number;
+  winners: number;
+  losers: number;
+  win_rate: number;
+}
+
+export async function fetchInstanceClosedTrades(instance: string): Promise<ClosedTradesResponse> {
+  const res = await fetch(`${API_BASE}/api/instances/${instance}/closed`);
+  if (!res.ok) throw new Error(`Failed to fetch closed trades for ${instance}`);
+  return res.json();
+}
+
 // ============ Admin APIs (require X-Admin-Token header) ============
 
 async function adminRequest(instance: string, endpoint: string, body: object, token: string): Promise<any> {
