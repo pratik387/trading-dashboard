@@ -756,6 +756,12 @@ async def get_instance_positions(instance: str):
     return await proxy_to_engine(instance, "/positions")
 
 
+@app.get("/api/instances/{instance}/funds")
+async def get_instance_funds(instance: str):
+    """Get broker account funds (Kite DMAT balance)"""
+    return await proxy_to_engine(instance, "/funds")
+
+
 # ============ Admin Endpoints (Token Protected) ============
 # These proxy to engine admin endpoints with token forwarding
 # Requires X-Admin-Token header for authentication

@@ -8,9 +8,11 @@ import {
   Instance,
   InstanceStatus,
   InstancePosition,
+  BrokerFunds,
   fetchInstances,
   fetchInstanceStatus,
   fetchInstancePositions,
+  fetchInstanceFunds,
 } from "@/lib/api";
 import { useAdmin } from "@/lib/AdminContext";
 import { RefreshCw, Circle, Server, Activity, AlertCircle } from "lucide-react";
@@ -21,6 +23,7 @@ export default function InstancesPage() {
   const [selectedInstance, setSelectedInstance] = useState<string | null>(null);
   const [status, setStatus] = useState<InstanceStatus | null>(null);
   const [positions, setPositions] = useState<InstancePosition[]>([]);
+  const [brokerFunds, setBrokerFunds] = useState<BrokerFunds | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(false);
@@ -47,18 +50,21 @@ export default function InstancesPage() {
 
     try {
       setLoading(true);
-      const [statusData, positionsData] = await Promise.all([
+      const [statusData, positionsData, fundsData] = await Promise.all([
         fetchInstanceStatus(selectedInstance),
         fetchInstancePositions(selectedInstance),
+        fetchInstanceFunds(selectedInstance).catch(() => ({ status: "error", funds: null })),
       ]);
       setStatus(statusData);
       setPositions(positionsData.positions || []);
+      setBrokerFunds(fundsData.funds);
       setLastUpdated(new Date().toLocaleTimeString());
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load instance details");
       setStatus(null);
       setPositions([]);
+      setBrokerFunds(null);
     } finally {
       setLoading(false);
     }
@@ -178,6 +184,7 @@ export default function InstancesPage() {
               instance={selectedInstance}
               status={status}
               positions={positions}
+              brokerFunds={brokerFunds}
               onRefresh={loadInstanceDetails}
             />
           )}
@@ -210,12 +217,34 @@ export default function InstancesPage() {
             </div>
           </section>
 
-          {/* Capital */}
+          {/* Broker DMAT Balance */}
+          {brokerFunds && !brokerFunds.error && (
+            <section>
+              <h2 className="text-lg font-semibold mb-3">🏦 Broker Account (Kite DMAT)</h2>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <MetricCard label="Available Cash" value={formatINR(brokerFunds.available_cash)} />
+                <MetricCard label="Available Margin" value={formatINR(brokerFunds.available_margin)} />
+                <MetricCard label="Used Margin" value={formatINR(brokerFunds.used_margin)} />
+                <MetricCard label="Net Balance" value={formatINR(brokerFunds.net)} />
+              </div>
+            </section>
+          )}
+
+          {/* Engine Capital (allocation for this session) */}
           {status.capital && (
             <section>
-              <h2 className="text-lg font-semibold mb-3">💵 Capital</h2>
+              <h2 className="text-lg font-semibold mb-3">💰 Engine Capital</h2>
+              {/* Warning if allocated capital exceeds DMAT balance */}
+              {brokerFunds && !brokerFunds.error && status.capital.total > brokerFunds.available_margin && (
+                <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 mb-3 flex items-center gap-2">
+                  <AlertCircle className="w-5 h-5 text-orange-500 flex-shrink-0" />
+                  <div className="text-sm text-orange-700">
+                    <span className="font-medium">Warning:</span> Allocated capital ({formatINR(status.capital.total)}) exceeds available DMAT margin ({formatINR(brokerFunds.available_margin)}). Orders may be rejected by broker.
+                  </div>
+                </div>
+              )}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <MetricCard label="Total" value={formatINR(status.capital.total)} />
+                <MetricCard label="Allocated" value={formatINR(status.capital.total)} />
                 <MetricCard label="Available" value={formatINR(status.capital.available)} />
                 <MetricCard label="Margin Used" value={formatINR(status.capital.margin_used)} />
                 <MetricCard

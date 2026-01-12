@@ -5,22 +5,26 @@ import { useAdmin } from "@/lib/AdminContext";
 import {
   InstanceStatus,
   InstancePosition,
+  BrokerFunds,
   adminSetCapital,
   adminToggleMIS,
   adminExitPosition,
   adminExitAll,
+  adminPause,
+  adminResume,
 } from "@/lib/api";
 import { formatINR } from "@/lib/utils";
-import { Key, LogOut, DollarSign, ToggleLeft, ToggleRight, X, AlertTriangle } from "lucide-react";
+import { Key, LogOut, DollarSign, ToggleLeft, ToggleRight, X, AlertTriangle, Pause, Play } from "lucide-react";
 
 interface AdminPanelProps {
   instance: string;
   status: InstanceStatus | null;
   positions: InstancePosition[];
+  brokerFunds: BrokerFunds | null;
   onRefresh: () => void;
 }
 
-export function AdminPanel({ instance, status, positions, onRefresh }: AdminPanelProps) {
+export function AdminPanel({ instance, status, positions, brokerFunds, onRefresh }: AdminPanelProps) {
   const { adminToken, setAdminToken, isAdmin, clearToken } = useAdmin();
   const [tokenInput, setTokenInput] = useState("");
   const [capitalInput, setCapitalInput] = useState("");
@@ -118,6 +122,38 @@ export function AdminPanel({ instance, status, positions, onRefresh }: AdminPane
     }
   };
 
+  const handlePause = async () => {
+    if (!adminToken) return;
+
+    setLoading(true);
+    try {
+      await adminPause(instance, "manual_pause", adminToken);
+      showMessage("Trading paused - no new entries");
+      onRefresh();
+    } catch (err) {
+      showMessage(err instanceof Error ? err.message : "Failed to pause", true);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResume = async () => {
+    if (!adminToken) return;
+
+    setLoading(true);
+    try {
+      await adminResume(instance, adminToken);
+      showMessage("Trading resumed");
+      onRefresh();
+    } catch (err) {
+      showMessage(err instanceof Error ? err.message : "Failed to resume", true);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const isPaused = status?.state === "paused";
+
   // Not logged in - show token input
   if (!isAdmin) {
     return (
@@ -189,27 +225,67 @@ export function AdminPanel({ instance, status, positions, onRefresh }: AdminPane
         <div className="bg-green-100 text-green-700 px-3 py-2 rounded text-sm">{success}</div>
       )}
 
+      {/* Pause/Resume Control */}
+      <div className="flex items-center gap-3 pb-3 border-b border-blue-200 dark:border-blue-800">
+        {isPaused ? (
+          <>
+            <button
+              onClick={handleResume}
+              disabled={loading}
+              className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50 flex items-center gap-2"
+            >
+              <Play className="w-4 h-4" /> Resume Trading
+            </button>
+            <span className="text-sm text-orange-600 font-medium flex items-center gap-1">
+              <Pause className="w-4 h-4" /> Trading is PAUSED
+            </span>
+          </>
+        ) : (
+          <>
+            <button
+              onClick={handlePause}
+              disabled={loading}
+              className="px-4 py-2 bg-orange-500 text-white rounded-lg text-sm font-medium hover:bg-orange-600 disabled:opacity-50 flex items-center gap-2"
+            >
+              <Pause className="w-4 h-4" /> Pause Trading
+            </button>
+            <span className="text-sm text-green-600 font-medium flex items-center gap-1">
+              <Play className="w-4 h-4" /> Trading is ACTIVE
+            </span>
+          </>
+        )}
+      </div>
+
       {/* Capital Control */}
-      <div className="flex items-center gap-2">
-        <DollarSign className="w-4 h-4 text-blue-600" />
-        <input
-          type="number"
-          value={capitalInput}
-          onChange={(e) => setCapitalInput(e.target.value)}
-          placeholder="New capital"
-          className="w-32 px-2 py-1 border rounded text-sm dark:bg-gray-800 dark:border-gray-700"
-        />
-        <button
-          onClick={handleSetCapital}
-          disabled={loading || !capitalInput}
-          className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50"
-        >
-          Set Capital
-        </button>
-        {status && (
-          <span className="text-sm text-gray-500">
-            Current: {formatINR(status.capital.total)}
-          </span>
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <DollarSign className="w-4 h-4 text-blue-600" />
+          <input
+            type="number"
+            value={capitalInput}
+            onChange={(e) => setCapitalInput(e.target.value)}
+            placeholder="New capital"
+            className="w-32 px-2 py-1 border rounded text-sm dark:bg-gray-800 dark:border-gray-700"
+          />
+          <button
+            onClick={handleSetCapital}
+            disabled={loading || !capitalInput}
+            className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50"
+          >
+            Set Capital
+          </button>
+          {status && (
+            <span className="text-sm text-gray-500">
+              Current: {formatINR(status.capital.total)}
+            </span>
+          )}
+        </div>
+        {/* Warning when input exceeds DMAT balance */}
+        {capitalInput && brokerFunds && !brokerFunds.error && parseFloat(capitalInput) > brokerFunds.available_margin && (
+          <div className="flex items-center gap-1 text-xs text-orange-600">
+            <AlertTriangle className="w-3 h-3" />
+            <span>Exceeds available DMAT margin ({formatINR(brokerFunds.available_margin)})</span>
+          </div>
         )}
       </div>
 

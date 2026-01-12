@@ -259,6 +259,20 @@ export async function fetchInstancePositions(instance: string): Promise<{ positi
   return res.json();
 }
 
+export interface BrokerFunds {
+  available_cash: number;
+  available_margin: number;
+  used_margin: number;
+  net: number;
+  error?: string;
+}
+
+export async function fetchInstanceFunds(instance: string): Promise<{ status: string; funds: BrokerFunds | null; error?: string }> {
+  const res = await fetch(`${API_BASE}/api/instances/${instance}/funds`);
+  if (!res.ok) throw new Error(`Failed to fetch funds for ${instance}`);
+  return res.json();
+}
+
 // ============ Admin APIs (require X-Admin-Token header) ============
 
 async function adminRequest(instance: string, endpoint: string, body: object, token: string): Promise<any> {
@@ -294,4 +308,12 @@ export async function adminExitPosition(instance: string, symbol: string, qty: n
 
 export async function adminExitAll(instance: string, reason: string, token: string): Promise<any> {
   return adminRequest(instance, "exit-all", { reason }, token);
+}
+
+export async function adminPause(instance: string, reason: string, token: string): Promise<any> {
+  return adminRequest(instance, "pause", { reason }, token);
+}
+
+export async function adminResume(instance: string, token: string): Promise<any> {
+  return adminRequest(instance, "resume", {}, token);
 }
