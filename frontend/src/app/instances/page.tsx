@@ -231,182 +231,13 @@ export default function InstancesPage() {
   const totalPnl = realizedPnl + unrealizedPnl;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Header Row */}
-      <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
-        {/* Left: Title + Instance Selector */}
-        <div className="space-y-3">
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Circle className="w-3 h-3 fill-red-500 text-red-500 animate-pulse" />
-            Live Trading
-          </h1>
-
-          {/* Instance Selector with health dots */}
-          <div className="flex flex-wrap gap-2">
-            {instances.map((instance) => (
-              <button
-                key={instance.name}
-                onClick={() => setSelectedInstance(instance.name)}
-                className={cn(
-                  "px-3 py-1.5 rounded-lg border text-sm flex items-center gap-2 transition-colors",
-                  selectedInstance === instance.name
-                    ? "bg-blue-50 border-blue-300 dark:bg-blue-900/30 dark:border-blue-700"
-                    : "hover:bg-gray-50 dark:hover:bg-gray-800"
-                )}
-              >
-                <span className={cn("w-2 h-2 rounded-full", getStatusColor(instance.status))} />
-                <span className="font-medium">{instance.name}</span>
-                {instance.type === "live" && (
-                  <span className="text-xs text-red-600">LIVE</span>
-                )}
-              </button>
-            ))}
-            {instances.length === 0 && (
-              <span className="text-gray-500 text-sm">No instances found</span>
-            )}
-          </div>
-        </div>
-
-        {/* Right: Admin Controls (for live instance) */}
-        {isLiveInstance && selectedInstance && (
-          <div className="bg-gray-50 dark:bg-gray-800 border rounded-lg p-3 space-y-2 min-w-[280px]">
-            {!isAdmin ? (
-              // Token input
-              <div className="flex gap-2">
-                <input
-                  type="password"
-                  value={tokenInput}
-                  onChange={(e) => setTokenInput(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleSetToken()}
-                  placeholder="Admin token"
-                  className="flex-1 px-2 py-1 border rounded text-sm dark:bg-gray-700 dark:border-gray-600"
-                />
-                <button
-                  onClick={handleSetToken}
-                  className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700"
-                >
-                  <Key className="w-4 h-4" />
-                </button>
-              </div>
-            ) : (
-              <>
-                {/* Admin message */}
-                {adminMessage && (
-                  <div
-                    className={cn(
-                      "px-2 py-1 rounded text-xs",
-                      adminMessage.isError ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700"
-                    )}
-                  >
-                    {adminMessage.text}
-                  </div>
-                )}
-
-                {/* Exit All - Prominent */}
-                {positions.length > 0 && (
-                  <div>
-                    {confirmExitAll ? (
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-red-600">Exit {positions.length} positions?</span>
-                        <button
-                          onClick={handleExitAll}
-                          disabled={adminLoading}
-                          className="px-2 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-700 disabled:opacity-50"
-                        >
-                          Confirm
-                        </button>
-                        <button
-                          onClick={() => setConfirmExitAll(false)}
-                          className="px-2 py-1 bg-gray-200 text-gray-700 rounded text-xs"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    ) : (
-                      <button
-                        onClick={() => setConfirmExitAll(true)}
-                        disabled={adminLoading}
-                        className="w-full px-3 py-1.5 bg-red-600 text-white rounded text-sm font-medium hover:bg-red-700 disabled:opacity-50 flex items-center justify-center gap-2"
-                      >
-                        <X className="w-4 h-4" /> Exit All Positions
-                      </button>
-                    )}
-                  </div>
-                )}
-
-                {/* Pause/Resume */}
-                <button
-                  onClick={handlePauseResume}
-                  disabled={adminLoading}
-                  className={cn(
-                    "w-full px-3 py-1.5 rounded text-sm font-medium flex items-center justify-center gap-2 disabled:opacity-50",
-                    isPaused
-                      ? "bg-green-600 text-white hover:bg-green-700"
-                      : "bg-orange-500 text-white hover:bg-orange-600"
-                  )}
-                >
-                  {isPaused ? (
-                    <>
-                      <Play className="w-4 h-4" /> Resume Trading
-                    </>
-                  ) : (
-                    <>
-                      <Pause className="w-4 h-4" /> Pause Trading
-                    </>
-                  )}
-                </button>
-
-                {/* MIS Toggle */}
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={handleToggleMIS}
-                    disabled={adminLoading}
-                    className={cn(
-                      "px-3 py-1 rounded text-sm disabled:opacity-50",
-                      status?.capital.mis_enabled
-                        ? "bg-green-100 text-green-700"
-                        : "bg-gray-200 text-gray-600"
-                    )}
-                  >
-                    MIS: {status?.capital.mis_enabled ? "ON" : "OFF"}
-                  </button>
-                  <span className="text-xs text-gray-500">
-                    {status?.capital.mis_enabled ? "5x leverage" : "CNC mode"}
-                  </span>
-                </div>
-
-                {/* Capital Input */}
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    value={capitalInput}
-                    onChange={(e) => setCapitalInput(e.target.value)}
-                    placeholder="Capital"
-                    className="w-24 px-2 py-1 border rounded text-sm dark:bg-gray-700 dark:border-gray-600"
-                  />
-                  <button
-                    onClick={handleSetCapital}
-                    disabled={adminLoading || !capitalInput}
-                    className="px-2 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50"
-                  >
-                    Set
-                  </button>
-                  <span className="text-xs text-gray-500">
-                    {status && formatINR(status.capital.total)}
-                  </span>
-                </div>
-
-                {/* Logout */}
-                <button
-                  onClick={clearToken}
-                  className="text-xs text-gray-500 hover:text-red-600 flex items-center gap-1"
-                >
-                  <LogOut className="w-3 h-3" /> Logout
-                </button>
-              </>
-            )}
-          </div>
-        )}
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold flex items-center gap-2">
+          <Circle className="w-3 h-3 fill-red-500 text-red-500 animate-pulse" />
+          Live Trading
+        </h1>
 
         {/* Refresh controls */}
         <div className="flex items-center gap-3">
@@ -431,6 +262,144 @@ export default function InstancesPage() {
           </button>
         </div>
       </div>
+
+      {/* Instance Selector */}
+      <div className="flex flex-wrap gap-2">
+        {instances.map((instance) => (
+          <button
+            key={instance.name}
+            onClick={() => setSelectedInstance(instance.name)}
+            className={cn(
+              "px-3 py-1.5 rounded-lg border text-sm flex items-center gap-2 transition-colors",
+              selectedInstance === instance.name
+                ? "bg-blue-50 border-blue-300 dark:bg-blue-900/30 dark:border-blue-700"
+                : "hover:bg-gray-50 dark:hover:bg-gray-800"
+            )}
+          >
+            <span className={cn("w-2 h-2 rounded-full", getStatusColor(instance.status))} />
+            <span className="font-medium">{instance.name}</span>
+            {instance.type === "live" && (
+              <span className="text-xs text-red-600">LIVE</span>
+            )}
+          </button>
+        ))}
+        {instances.length === 0 && (
+          <span className="text-gray-500 text-sm">No instances found</span>
+        )}
+      </div>
+
+      {/* Horizontal Admin Bar - only for live instance */}
+      {isLiveInstance && selectedInstance && (
+        <div className="bg-slate-50 dark:bg-slate-900 border-y py-2 px-3 -mx-6">
+          <div className="max-w-7xl mx-auto">
+            {!isAdmin ? (
+              // Token input - inline
+              <div className="flex items-center gap-3">
+                <Key className="w-4 h-4 text-gray-400" />
+                <span className="text-sm text-gray-500">Admin:</span>
+                <input
+                  type="password"
+                  value={tokenInput}
+                  onChange={(e) => setTokenInput(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleSetToken()}
+                  placeholder="Enter token..."
+                  className="px-2 py-1 border rounded text-sm w-40 dark:bg-gray-800 dark:border-gray-700"
+                />
+                <button
+                  onClick={handleSetToken}
+                  className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700"
+                >
+                  Unlock
+                </button>
+              </div>
+            ) : (
+              // Admin controls - horizontal layout
+              <div className="flex items-center gap-4 flex-wrap">
+                <span className="text-sm font-medium text-gray-600 dark:text-gray-400">Admin:</span>
+
+                {/* Admin message - inline */}
+                {adminMessage && (
+                  <span
+                    className={cn(
+                      "px-2 py-1 rounded text-xs",
+                      adminMessage.isError ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700"
+                    )}
+                  >
+                    {adminMessage.text}
+                  </span>
+                )}
+
+                {/* Pause/Resume */}
+                <button
+                  onClick={handlePauseResume}
+                  disabled={adminLoading}
+                  className={cn(
+                    "px-3 py-1.5 rounded text-sm font-medium flex items-center gap-1.5 disabled:opacity-50",
+                    isPaused
+                      ? "bg-green-600 text-white hover:bg-green-700"
+                      : "bg-orange-500 text-white hover:bg-orange-600"
+                  )}
+                >
+                  {isPaused ? (
+                    <>
+                      <Play className="w-4 h-4" /> Resume
+                    </>
+                  ) : (
+                    <>
+                      <Pause className="w-4 h-4" /> Pause
+                    </>
+                  )}
+                </button>
+
+                {/* MIS Toggle */}
+                <button
+                  onClick={handleToggleMIS}
+                  disabled={adminLoading}
+                  className={cn(
+                    "px-3 py-1.5 rounded text-sm font-medium disabled:opacity-50",
+                    status?.capital.mis_enabled
+                      ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                      : "bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-400"
+                  )}
+                >
+                  MIS: {status?.capital.mis_enabled ? "ON" : "OFF"}
+                </button>
+
+                {/* Capital Input */}
+                <div className="flex items-center gap-1.5">
+                  <span className="text-sm text-gray-500">Capital:</span>
+                  <input
+                    type="number"
+                    value={capitalInput}
+                    onChange={(e) => setCapitalInput(e.target.value)}
+                    placeholder={status ? formatINR(status.capital.total) : "0"}
+                    className="w-24 px-2 py-1 border rounded text-sm dark:bg-gray-800 dark:border-gray-700"
+                  />
+                  <button
+                    onClick={handleSetCapital}
+                    disabled={adminLoading || !capitalInput}
+                    className="px-2 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    Set
+                  </button>
+                </div>
+
+                {/* Spacer */}
+                <div className="flex-1" />
+
+                {/* Logout */}
+                <button
+                  onClick={clearToken}
+                  className="p-1.5 text-gray-400 hover:text-red-600 rounded hover:bg-gray-100 dark:hover:bg-gray-800"
+                  title="Logout"
+                >
+                  <LogOut className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Error */}
       {error && (
@@ -589,6 +558,39 @@ export default function InstancesPage() {
                 </tbody>
               </table>
             </div>
+
+            {/* Exit All - positioned after positions table */}
+            {isAdmin && isLiveInstance && positions.length > 0 && (
+              <div className="mt-3">
+                {confirmExitAll ? (
+                  <div className="flex items-center gap-3">
+                    <AlertTriangle className="w-5 h-5 text-red-500" />
+                    <span className="text-sm text-red-600">Exit all {positions.length} positions?</span>
+                    <button
+                      onClick={handleExitAll}
+                      disabled={adminLoading}
+                      className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 disabled:opacity-50"
+                    >
+                      Confirm Exit All
+                    </button>
+                    <button
+                      onClick={() => setConfirmExitAll(false)}
+                      className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg text-sm hover:bg-gray-300"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setConfirmExitAll(true)}
+                    disabled={adminLoading}
+                    className="px-4 py-2 bg-red-100 text-red-700 rounded-lg text-sm font-medium hover:bg-red-200 flex items-center gap-2 disabled:opacity-50"
+                  >
+                    <X className="w-4 h-4" /> Exit All Positions
+                  </button>
+                )}
+              </div>
+            )}
           </section>
 
           {/* Closed Positions Table */}
