@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { MetricCard } from "@/components/MetricCard";
 import { ExitButton } from "@/components/AdminPanel";
 import { cn, formatINR, formatPct, formatTime } from "@/lib/utils";
@@ -10,6 +10,7 @@ import {
   InstancePosition,
   BrokerFunds,
   ClosedTradesResponse,
+  ClosedTrade,
   fetchInstances,
   fetchInstanceStatus,
   fetchInstancePositions,
@@ -22,6 +23,7 @@ import {
   adminResume,
 } from "@/lib/api";
 import { useAdmin } from "@/lib/AdminContext";
+import { useInstanceWebSocket } from "@/lib/useInstanceWebSocket";
 import {
   RefreshCw,
   Circle,
@@ -33,7 +35,20 @@ import {
   AlertTriangle,
   Pause,
   Play,
+  Wifi,
+  WifiOff,
 } from "lucide-react";
+
+/**
+ * Get HTTP URL for an instance's API server.
+ * The useInstanceWebSocket hook converts this to WebSocket URL (port + 1).
+ */
+function getInstanceWsUrl(instance: Instance | undefined): string | null {
+  if (!instance) return null;
+  // Use the dashboard's hostname (or localhost for dev) with the instance's HTTP port
+  const host = typeof window !== "undefined" ? window.location.hostname : "localhost";
+  return `http://${host}:${instance.port}`;
+}
 
 export default function InstancesPage() {
   const { adminToken, setAdminToken, isAdmin, clearToken } = useAdmin();
@@ -48,6 +63,9 @@ export default function InstancesPage() {
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<string>("");
 
+  // Track if we're using WebSocket (true) or HTTP polling fallback (false)
+  const [useWebSocket, setUseWebSocket] = useState(true);
+
   // Admin-related state
   const [tokenInput, setTokenInput] = useState("");
   const [capitalInput, setCapitalInput] = useState("");
@@ -57,6 +75,85 @@ export default function InstancesPage() {
 
   // Collapsible details
   const [showDetails, setShowDetails] = useState(false);
+
+  // Get selected instance data for WebSocket URL construction
+  const selectedInstanceData = instances.find((i) => i.name === selectedInstance);
+  const instanceWsUrl = getInstanceWsUrl(selectedInstanceData);
+
+  // WebSocket callbacks - use useCallback to maintain stable references
+  const handleWsStatus = useCallback((data: { state: string }) => {
+    setStatus((prev) => (prev ? { ...prev, state: data.state } : prev));
+    setLastUpdated(new Date().toLocaleTimeString());
+  }, []);
+
+  const handleWsPositions = useCallback((newPositions: InstancePosition[]) => {
+    setPositions(newPositions);
+    setLastUpdated(new Date().toLocaleTimeString());
+  }, []);
+
+  const handleWsClosedTrade = useCallback((trade: ClosedTrade) => {
+    setClosedTrades((prev) => {
+      if (!prev) return prev;
+      const isWin = trade.pnl > 0;
+      const newCount = prev.count + 1;
+      const newWinners = prev.winners + (isWin ? 1 : 0);
+      const newLosers = prev.losers + (isWin ? 0 : 1);
+      return {
+        ...prev,
+        trades: [...prev.trades, trade],
+        count: newCount,
+        total_pnl: prev.total_pnl + trade.pnl,
+        winners: newWinners,
+        losers: newLosers,
+        win_rate: newCount > 0 ? (newWinners / newCount) * 100 : 0,
+      };
+    });
+    setLastUpdated(new Date().toLocaleTimeString());
+  }, []);
+
+  const handleWsLTPBatch = useCallback(
+    (prices: Record<string, { price: number; timestamp: string }>) => {
+      // Update LTP in positions
+      setPositions((prev) =>
+        prev.map((pos) => {
+          const priceData = prices[pos.symbol];
+          if (priceData) {
+            const ltp = priceData.price;
+            // Recalculate unrealized PnL
+            const priceDiff = pos.side === "SELL" ? pos.entry - ltp : ltp - pos.entry;
+            const pnl = priceDiff * pos.qty;
+            return { ...pos, ltp, pnl };
+          }
+          return pos;
+        })
+      );
+      // Update total unrealized PnL in status
+      setStatus((prev) => {
+        if (!prev) return prev;
+        const totalUnrealized = positions.reduce((sum, pos) => {
+          const priceData = prices[pos.symbol];
+          if (priceData) {
+            const ltp = priceData.price;
+            const priceDiff = pos.side === "SELL" ? pos.entry - ltp : ltp - pos.entry;
+            return sum + priceDiff * pos.qty;
+          }
+          return sum + (pos.pnl || 0);
+        }, 0);
+        return { ...prev, unrealized_pnl: totalUnrealized };
+      });
+    },
+    [positions]
+  );
+
+  // WebSocket connection
+  const { connected: wsConnected, connectionState, error: wsError } = useInstanceWebSocket({
+    instanceUrl: instanceWsUrl,
+    enabled: autoRefresh && useWebSocket,
+    onStatus: handleWsStatus,
+    onPositions: handleWsPositions,
+    onClosedTrade: handleWsClosedTrade,
+    onLTPBatch: handleWsLTPBatch,
+  });
 
   const showAdminMessage = (text: string, isError = false) => {
     setAdminMessage({ text, isError });
@@ -123,14 +220,18 @@ export default function InstancesPage() {
     }
   }, [selectedInstance]);
 
+  // HTTP polling fallback - only used when WebSocket is disabled or not connected
   useEffect(() => {
+    // Skip polling if using WebSocket and it's connected
+    if (useWebSocket && wsConnected) return;
     if (!autoRefresh || !selectedInstance) return;
+
     const interval = setInterval(() => {
       loadInstances();
       loadInstanceDetails();
     }, 5000);
     return () => clearInterval(interval);
-  }, [autoRefresh, selectedInstance]);
+  }, [autoRefresh, selectedInstance, useWebSocket, wsConnected]);
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -145,7 +246,6 @@ export default function InstancesPage() {
     }
   };
 
-  const selectedInstanceData = instances.find((i) => i.name === selectedInstance);
   const isLiveInstance = selectedInstanceData?.type === "live";
   const isPaused = status?.state === "paused";
 
@@ -241,6 +341,28 @@ export default function InstancesPage() {
 
         {/* Refresh controls */}
         <div className="flex items-center gap-3">
+          {/* WebSocket status indicator */}
+          {autoRefresh && useWebSocket && (
+            <div
+              className={cn(
+                "flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium",
+                wsConnected
+                  ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                  : connectionState === "connecting"
+                  ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400"
+                  : "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400"
+              )}
+              title={wsConnected ? "Real-time updates via WebSocket" : connectionState === "connecting" ? "Connecting to WebSocket..." : "WebSocket disconnected - using HTTP polling"}
+            >
+              {wsConnected ? (
+                <Wifi className="w-3 h-3" />
+              ) : (
+                <WifiOff className="w-3 h-3" />
+              )}
+              {wsConnected ? "Live" : connectionState === "connecting" ? "Connecting" : "Polling"}
+            </div>
+          )}
+
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"
@@ -248,7 +370,7 @@ export default function InstancesPage() {
               onChange={(e) => setAutoRefresh(e.target.checked)}
               className="rounded"
             />
-            Auto (5s)
+            Auto-refresh
           </label>
           <button
             onClick={() => {
@@ -257,6 +379,7 @@ export default function InstancesPage() {
             }}
             disabled={loading}
             className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50"
+            title="Manual refresh"
           >
             <RefreshCw className={cn("w-5 h-5", loading && "animate-spin")} />
           </button>
@@ -752,7 +875,12 @@ export default function InstancesPage() {
           </section>
 
           {/* Last Updated */}
-          <p className="text-sm text-gray-500 text-center">Last updated: {lastUpdated}</p>
+          <p className="text-sm text-gray-500 text-center">
+            Last updated: {lastUpdated}
+            {autoRefresh && useWebSocket && wsConnected && (
+              <span className="ml-2 text-green-600">(real-time)</span>
+            )}
+          </p>
         </>
       )}
     </div>
