@@ -401,7 +401,7 @@ export function ExitButton({
             <button
               onClick={() => handleExit(Math.floor(qty / 2))}
               disabled={loading}
-              className="px-2 py-1 text-xs bg-orange-100 text-orange-700 rounded hover:bg-orange-200 disabled:opacity-50"
+              className="px-2 py-1 text-xs bg-amber-100 text-amber-700 rounded hover:bg-amber-200 disabled:opacity-50"
             >
               50%
             </button>
@@ -409,7 +409,7 @@ export function ExitButton({
           <button
             onClick={() => handleExit(null)}
             disabled={loading}
-            className="px-2 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200 disabled:opacity-50"
+            className="px-2 py-1 text-xs bg-orange-100 text-orange-700 rounded hover:bg-orange-200 disabled:opacity-50"
           >
             Full
           </button>
@@ -424,7 +424,7 @@ export function ExitButton({
         <button
           onClick={() => setShowPartial(true)}
           disabled={loading}
-          className="px-2 py-1 text-xs bg-red-50 text-red-600 rounded hover:bg-red-100 disabled:opacity-50"
+          className="px-2 py-1 text-xs bg-orange-50 text-orange-600 rounded hover:bg-orange-100 disabled:opacity-50"
         >
           {loading ? "..." : "Exit"}
         </button>
