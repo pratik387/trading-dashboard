@@ -315,8 +315,6 @@ export default function InstancesPage() {
             ) : (
               // Admin controls - horizontal layout
               <div className="flex items-center gap-4 flex-wrap">
-                <span className="text-sm font-medium text-gray-600 dark:text-gray-400">Admin:</span>
-
                 {/* Admin message - inline */}
                 {adminMessage && (
                   <span
@@ -333,6 +331,7 @@ export default function InstancesPage() {
                 <button
                   onClick={handlePauseResume}
                   disabled={adminLoading}
+                  title={isPaused ? "Resume trading - allow new entries" : "Pause trading - stop new entries, keep existing positions"}
                   className={cn(
                     "px-3 py-1.5 rounded text-sm font-medium flex items-center gap-1.5 disabled:opacity-50",
                     isPaused
@@ -355,6 +354,7 @@ export default function InstancesPage() {
                 <button
                   onClick={handleToggleMIS}
                   disabled={adminLoading}
+                  title={status?.capital.mis_enabled ? "Switch to CNC mode (no leverage)" : "Enable MIS mode (5x leverage)"}
                   className={cn(
                     "px-3 py-1.5 rounded text-sm font-medium disabled:opacity-50",
                     status?.capital.mis_enabled
@@ -366,7 +366,7 @@ export default function InstancesPage() {
                 </button>
 
                 {/* Capital Input */}
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-1.5" title="Set trading capital for position sizing">
                   <span className="text-sm text-gray-500">Capital:</span>
                   <input
                     type="number"
@@ -390,10 +390,11 @@ export default function InstancesPage() {
                 {/* Logout */}
                 <button
                   onClick={clearToken}
-                  className="p-1.5 text-gray-400 hover:text-red-600 rounded hover:bg-gray-100 dark:hover:bg-gray-800"
-                  title="Logout"
+                  title="Clear admin token and lock controls"
+                  className="px-2 py-1 text-sm text-gray-500 hover:text-red-600 rounded hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-1"
                 >
                   <LogOut className="w-4 h-4" />
+                  Logout
                 </button>
               </div>
             )}
