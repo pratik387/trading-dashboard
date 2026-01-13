@@ -290,115 +290,120 @@ export default function InstancesPage() {
 
       {/* Horizontal Admin Bar - only for live instance */}
       {isLiveInstance && selectedInstance && (
-        <div className="bg-slate-50 dark:bg-slate-900 border-y py-2 px-3 -mx-6">
-          <div className="max-w-7xl mx-auto">
-            {!isAdmin ? (
-              // Token input - inline
-              <div className="flex items-center gap-3">
-                <Key className="w-4 h-4 text-gray-400" />
-                <span className="text-sm text-gray-500">Admin:</span>
+        <div className="bg-white dark:bg-gray-800 border rounded-lg py-2.5 px-4 shadow-sm">
+          {!isAdmin ? (
+            // Token input - inline
+            <div className="flex items-center gap-3">
+              <Key className="w-4 h-4 text-amber-500" />
+              <input
+                type="password"
+                value={tokenInput}
+                onChange={(e) => setTokenInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleSetToken()}
+                placeholder="Enter admin token..."
+                className="px-2 py-1 border rounded text-sm w-44 dark:bg-gray-700 dark:border-gray-600"
+              />
+              <button
+                onClick={handleSetToken}
+                className="px-3 py-1.5 bg-amber-500 text-white rounded text-sm font-medium hover:bg-amber-600"
+              >
+                Unlock
+              </button>
+            </div>
+          ) : (
+            // Admin controls - horizontal layout
+            <div className="flex items-center gap-3 flex-wrap">
+              {/* Admin message - inline */}
+              {adminMessage && (
+                <span
+                  className={cn(
+                    "px-2 py-1 rounded text-xs",
+                    adminMessage.isError ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700"
+                  )}
+                >
+                  {adminMessage.text}
+                </span>
+              )}
+
+              {/* Pause/Resume */}
+              <button
+                onClick={handlePauseResume}
+                disabled={adminLoading}
+                title={isPaused ? "Resume trading - allow new entries" : "Pause trading - stop new entries, keep existing positions"}
+                className={cn(
+                  "px-3 py-1.5 rounded text-sm font-medium flex items-center gap-1.5 disabled:opacity-50",
+                  isPaused
+                    ? "bg-green-600 text-white hover:bg-green-700"
+                    : "bg-orange-500 text-white hover:bg-orange-600"
+                )}
+              >
+                {isPaused ? (
+                  <>
+                    <Play className="w-4 h-4" /> Resume
+                  </>
+                ) : (
+                  <>
+                    <Pause className="w-4 h-4" /> Pause
+                  </>
+                )}
+              </button>
+
+              {/* Divider */}
+              <div className="w-px h-6 bg-gray-200 dark:bg-gray-700" />
+
+              {/* MIS Toggle */}
+              <button
+                onClick={handleToggleMIS}
+                disabled={adminLoading}
+                title={status?.capital.mis_enabled ? "Switch to CNC mode (no leverage)" : "Enable MIS mode (5x leverage)"}
+                className={cn(
+                  "px-3 py-1.5 rounded text-sm font-medium disabled:opacity-50",
+                  status?.capital.mis_enabled
+                    ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                    : "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400"
+                )}
+              >
+                MIS: {status?.capital.mis_enabled ? "ON" : "OFF"}
+              </button>
+
+              {/* Divider */}
+              <div className="w-px h-6 bg-gray-200 dark:bg-gray-700" />
+
+              {/* Capital Display + Input */}
+              <div className="flex items-center gap-2" title="Set trading capital for position sizing">
+                <span className="text-sm text-gray-600 dark:text-gray-400">
+                  Capital: <span className="font-medium text-gray-900 dark:text-white">{status ? formatINR(status.capital.total) : "—"}</span>
+                </span>
                 <input
-                  type="password"
-                  value={tokenInput}
-                  onChange={(e) => setTokenInput(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleSetToken()}
-                  placeholder="Enter token..."
-                  className="px-2 py-1 border rounded text-sm w-40 dark:bg-gray-800 dark:border-gray-700"
+                  type="number"
+                  value={capitalInput}
+                  onChange={(e) => setCapitalInput(e.target.value)}
+                  placeholder="New value"
+                  className="w-24 px-2 py-1 border rounded text-sm dark:bg-gray-700 dark:border-gray-600"
                 />
                 <button
-                  onClick={handleSetToken}
-                  className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700"
+                  onClick={handleSetCapital}
+                  disabled={adminLoading || !capitalInput}
+                  className="px-2.5 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50"
                 >
-                  Unlock
+                  Set
                 </button>
               </div>
-            ) : (
-              // Admin controls - horizontal layout
-              <div className="flex items-center gap-4 flex-wrap">
-                {/* Admin message - inline */}
-                {adminMessage && (
-                  <span
-                    className={cn(
-                      "px-2 py-1 rounded text-xs",
-                      adminMessage.isError ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700"
-                    )}
-                  >
-                    {adminMessage.text}
-                  </span>
-                )}
 
-                {/* Pause/Resume */}
-                <button
-                  onClick={handlePauseResume}
-                  disabled={adminLoading}
-                  title={isPaused ? "Resume trading - allow new entries" : "Pause trading - stop new entries, keep existing positions"}
-                  className={cn(
-                    "px-3 py-1.5 rounded text-sm font-medium flex items-center gap-1.5 disabled:opacity-50",
-                    isPaused
-                      ? "bg-green-600 text-white hover:bg-green-700"
-                      : "bg-orange-500 text-white hover:bg-orange-600"
-                  )}
-                >
-                  {isPaused ? (
-                    <>
-                      <Play className="w-4 h-4" /> Resume
-                    </>
-                  ) : (
-                    <>
-                      <Pause className="w-4 h-4" /> Pause
-                    </>
-                  )}
-                </button>
+              {/* Spacer */}
+              <div className="flex-1" />
 
-                {/* MIS Toggle */}
-                <button
-                  onClick={handleToggleMIS}
-                  disabled={adminLoading}
-                  title={status?.capital.mis_enabled ? "Switch to CNC mode (no leverage)" : "Enable MIS mode (5x leverage)"}
-                  className={cn(
-                    "px-3 py-1.5 rounded text-sm font-medium disabled:opacity-50",
-                    status?.capital.mis_enabled
-                      ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
-                      : "bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-400"
-                  )}
-                >
-                  MIS: {status?.capital.mis_enabled ? "ON" : "OFF"}
-                </button>
-
-                {/* Capital Input */}
-                <div className="flex items-center gap-1.5" title="Set trading capital for position sizing">
-                  <span className="text-sm text-gray-500">Capital:</span>
-                  <input
-                    type="number"
-                    value={capitalInput}
-                    onChange={(e) => setCapitalInput(e.target.value)}
-                    placeholder={status ? formatINR(status.capital.total) : "0"}
-                    className="w-24 px-2 py-1 border rounded text-sm dark:bg-gray-800 dark:border-gray-700"
-                  />
-                  <button
-                    onClick={handleSetCapital}
-                    disabled={adminLoading || !capitalInput}
-                    className="px-2 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50"
-                  >
-                    Set
-                  </button>
-                </div>
-
-                {/* Spacer */}
-                <div className="flex-1" />
-
-                {/* Logout */}
-                <button
-                  onClick={clearToken}
-                  title="Clear admin token and lock controls"
-                  className="px-2 py-1 text-sm text-gray-500 hover:text-red-600 rounded hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-1"
-                >
-                  <LogOut className="w-4 h-4" />
-                  Logout
-                </button>
-              </div>
-            )}
-          </div>
+              {/* Logout */}
+              <button
+                onClick={clearToken}
+                title="Clear admin token and lock controls"
+                className="px-2 py-1 text-sm text-gray-500 hover:text-red-600 rounded hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-1"
+              >
+                <LogOut className="w-4 h-4" />
+                Logout
+              </button>
+            </div>
+          )}
         </div>
       )}
 
