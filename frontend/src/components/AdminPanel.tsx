@@ -369,10 +369,16 @@ export function ExitButton({
   if (!isAdmin) return null;
 
   const handleExit = async (exitQty: number | null) => {
-    if (!adminToken) return;
+    console.log("[ExitButton] handleExit called", { instance, symbol, exitQty, adminToken: !!adminToken });
+    if (!adminToken) {
+      console.log("[ExitButton] No admin token, returning");
+      return;
+    }
     setLoading(true);
     try {
-      await adminExitPosition(instance, symbol, exitQty, adminToken);
+      console.log("[ExitButton] Calling adminExitPosition...");
+      const result = await adminExitPosition(instance, symbol, exitQty, adminToken);
+      console.log("[ExitButton] Exit result:", result);
       onSuccess();
     } catch (err) {
       console.error("Exit failed:", err);
@@ -382,8 +388,10 @@ export function ExitButton({
     }
   };
 
-  // If T1 already taken, only show Full exit option
-  const canPartialExit = !t1Done;
+  // Only show 50% exit if:
+  // 1. T1 not already taken (t1Done is false)
+  // 2. Qty is at least 2 (so 50% = at least 1)
+  const canPartialExit = !t1Done && qty >= 2;
 
   return (
     <div className="relative">

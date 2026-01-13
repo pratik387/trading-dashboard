@@ -2,26 +2,41 @@
 
 import { useState, useEffect } from "react";
 import { MetricCard } from "@/components/MetricCard";
-import { AdminPanel, ExitButton } from "@/components/AdminPanel";
+import { ExitButton } from "@/components/AdminPanel";
 import { cn, formatINR, formatPct, formatTime } from "@/lib/utils";
 import {
   Instance,
   InstanceStatus,
   InstancePosition,
   BrokerFunds,
-  ClosedTrade,
   ClosedTradesResponse,
   fetchInstances,
   fetchInstanceStatus,
   fetchInstancePositions,
   fetchInstanceFunds,
   fetchInstanceClosedTrades,
+  adminSetCapital,
+  adminToggleMIS,
+  adminExitAll,
+  adminPause,
+  adminResume,
 } from "@/lib/api";
 import { useAdmin } from "@/lib/AdminContext";
-import { RefreshCw, Circle, Server, Activity, AlertCircle } from "lucide-react";
+import {
+  RefreshCw,
+  Circle,
+  ChevronDown,
+  ChevronUp,
+  Key,
+  LogOut,
+  X,
+  AlertTriangle,
+  Pause,
+  Play,
+} from "lucide-react";
 
 export default function InstancesPage() {
-  const { isAdmin } = useAdmin();
+  const { adminToken, setAdminToken, isAdmin, clearToken } = useAdmin();
   const [instances, setInstances] = useState<Instance[]>([]);
   const [selectedInstance, setSelectedInstance] = useState<string | null>(null);
   const [status, setStatus] = useState<InstanceStatus | null>(null);
@@ -33,12 +48,26 @@ export default function InstancesPage() {
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<string>("");
 
+  // Admin-related state
+  const [tokenInput, setTokenInput] = useState("");
+  const [capitalInput, setCapitalInput] = useState("");
+  const [adminLoading, setAdminLoading] = useState(false);
+  const [adminMessage, setAdminMessage] = useState<{ text: string; isError: boolean } | null>(null);
+  const [confirmExitAll, setConfirmExitAll] = useState(false);
+
+  // Collapsible details
+  const [showDetails, setShowDetails] = useState(false);
+
+  const showAdminMessage = (text: string, isError = false) => {
+    setAdminMessage({ text, isError });
+    setTimeout(() => setAdminMessage(null), 3000);
+  };
+
   // Load instances list
   const loadInstances = async () => {
     try {
       const data = await fetchInstances();
       setInstances(data.instances);
-      // Auto-select first online instance if none selected
       if (!selectedInstance) {
         const firstOnline = data.instances.find((i) => i.status === "ok");
         if (firstOnline) setSelectedInstance(firstOnline.name);
@@ -58,7 +87,14 @@ export default function InstancesPage() {
         fetchInstanceStatus(selectedInstance),
         fetchInstancePositions(selectedInstance),
         fetchInstanceFunds(selectedInstance).catch(() => ({ status: "error", funds: null })),
-        fetchInstanceClosedTrades(selectedInstance).catch(() => ({ trades: [], count: 0, total_pnl: 0, winners: 0, losers: 0, win_rate: 0 })),
+        fetchInstanceClosedTrades(selectedInstance).catch(() => ({
+          trades: [],
+          count: 0,
+          total_pnl: 0,
+          winners: 0,
+          losers: 0,
+          win_rate: 0,
+        })),
       ]);
       setStatus(statusData);
       setPositions(positionsData.positions || []);
@@ -99,32 +135,280 @@ export default function InstancesPage() {
   const getStatusColor = (status: string) => {
     switch (status) {
       case "ok":
-        return "text-green-500";
+        return "bg-green-500";
       case "unhealthy":
-        return "text-yellow-500";
+        return "bg-yellow-500";
       case "offline":
-        return "text-red-500";
+        return "bg-red-500";
       default:
-        return "text-gray-400";
+        return "bg-gray-400";
     }
   };
 
   const selectedInstanceData = instances.find((i) => i.name === selectedInstance);
+  const isLiveInstance = selectedInstanceData?.type === "live";
+  const isPaused = status?.state === "paused";
+
+  // Admin handlers
+  const handleSetToken = () => {
+    if (tokenInput.trim()) {
+      setAdminToken(tokenInput.trim());
+      setTokenInput("");
+    }
+  };
+
+  const handleSetCapital = async () => {
+    if (!adminToken || !capitalInput || !selectedInstance) return;
+    const capital = parseFloat(capitalInput);
+    if (isNaN(capital) || capital <= 0) {
+      showAdminMessage("Invalid capital amount", true);
+      return;
+    }
+    setAdminLoading(true);
+    try {
+      await adminSetCapital(selectedInstance, capital, adminToken);
+      showAdminMessage(`Capital set to ${formatINR(capital)}`);
+      setCapitalInput("");
+      loadInstanceDetails();
+    } catch (err) {
+      showAdminMessage(err instanceof Error ? err.message : "Failed", true);
+    } finally {
+      setAdminLoading(false);
+    }
+  };
+
+  const handleToggleMIS = async () => {
+    if (!adminToken || !status || !selectedInstance) return;
+    setAdminLoading(true);
+    try {
+      await adminToggleMIS(selectedInstance, !status.capital.mis_enabled, adminToken);
+      showAdminMessage(`MIS ${!status.capital.mis_enabled ? "enabled" : "disabled"}`);
+      loadInstanceDetails();
+    } catch (err) {
+      showAdminMessage(err instanceof Error ? err.message : "Failed", true);
+    } finally {
+      setAdminLoading(false);
+    }
+  };
+
+  const handleExitAll = async () => {
+    if (!adminToken || !selectedInstance) return;
+    setAdminLoading(true);
+    try {
+      const result = await adminExitAll(selectedInstance, "manual_exit_all", adminToken);
+      showAdminMessage(`Exited ${result.exits?.length || 0} positions`);
+      setConfirmExitAll(false);
+      loadInstanceDetails();
+    } catch (err) {
+      showAdminMessage(err instanceof Error ? err.message : "Failed", true);
+    } finally {
+      setAdminLoading(false);
+    }
+  };
+
+  const handlePauseResume = async () => {
+    if (!adminToken || !selectedInstance) return;
+    setAdminLoading(true);
+    try {
+      if (isPaused) {
+        await adminResume(selectedInstance, adminToken);
+        showAdminMessage("Trading resumed");
+      } else {
+        await adminPause(selectedInstance, "manual_pause", adminToken);
+        showAdminMessage("Trading paused");
+      }
+      loadInstanceDetails();
+    } catch (err) {
+      showAdminMessage(err instanceof Error ? err.message : "Failed", true);
+    } finally {
+      setAdminLoading(false);
+    }
+  };
+
+  // Calculate PnL values
+  const realizedPnl = closedTrades?.total_pnl || 0;
+  const unrealizedPnl = status?.unrealized_pnl || 0;
+  const totalPnl = realizedPnl + unrealizedPnl;
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
+      {/* Header Row */}
+      <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+        {/* Left: Title + Instance Selector */}
+        <div className="space-y-3">
           <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Server className="w-6 h-6" />
-            Engine Instances
+            <Circle className="w-3 h-3 fill-red-500 text-red-500 animate-pulse" />
+            Live Trading
           </h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Real-time monitoring from engine health servers
-          </p>
+
+          {/* Instance Selector with health dots */}
+          <div className="flex flex-wrap gap-2">
+            {instances.map((instance) => (
+              <button
+                key={instance.name}
+                onClick={() => setSelectedInstance(instance.name)}
+                className={cn(
+                  "px-3 py-1.5 rounded-lg border text-sm flex items-center gap-2 transition-colors",
+                  selectedInstance === instance.name
+                    ? "bg-blue-50 border-blue-300 dark:bg-blue-900/30 dark:border-blue-700"
+                    : "hover:bg-gray-50 dark:hover:bg-gray-800"
+                )}
+              >
+                <span className={cn("w-2 h-2 rounded-full", getStatusColor(instance.status))} />
+                <span className="font-medium">{instance.name}</span>
+                {instance.type === "live" && (
+                  <span className="text-xs text-red-600">LIVE</span>
+                )}
+              </button>
+            ))}
+            {instances.length === 0 && (
+              <span className="text-gray-500 text-sm">No instances found</span>
+            )}
+          </div>
         </div>
 
+        {/* Right: Admin Controls (for live instance) */}
+        {isLiveInstance && selectedInstance && (
+          <div className="bg-gray-50 dark:bg-gray-800 border rounded-lg p-3 space-y-2 min-w-[280px]">
+            {!isAdmin ? (
+              // Token input
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  value={tokenInput}
+                  onChange={(e) => setTokenInput(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleSetToken()}
+                  placeholder="Admin token"
+                  className="flex-1 px-2 py-1 border rounded text-sm dark:bg-gray-700 dark:border-gray-600"
+                />
+                <button
+                  onClick={handleSetToken}
+                  className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700"
+                >
+                  <Key className="w-4 h-4" />
+                </button>
+              </div>
+            ) : (
+              <>
+                {/* Admin message */}
+                {adminMessage && (
+                  <div
+                    className={cn(
+                      "px-2 py-1 rounded text-xs",
+                      adminMessage.isError ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700"
+                    )}
+                  >
+                    {adminMessage.text}
+                  </div>
+                )}
+
+                {/* Exit All - Prominent */}
+                {positions.length > 0 && (
+                  <div>
+                    {confirmExitAll ? (
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-red-600">Exit {positions.length} positions?</span>
+                        <button
+                          onClick={handleExitAll}
+                          disabled={adminLoading}
+                          className="px-2 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-700 disabled:opacity-50"
+                        >
+                          Confirm
+                        </button>
+                        <button
+                          onClick={() => setConfirmExitAll(false)}
+                          className="px-2 py-1 bg-gray-200 text-gray-700 rounded text-xs"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setConfirmExitAll(true)}
+                        disabled={adminLoading}
+                        className="w-full px-3 py-1.5 bg-red-600 text-white rounded text-sm font-medium hover:bg-red-700 disabled:opacity-50 flex items-center justify-center gap-2"
+                      >
+                        <X className="w-4 h-4" /> Exit All Positions
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* Pause/Resume */}
+                <button
+                  onClick={handlePauseResume}
+                  disabled={adminLoading}
+                  className={cn(
+                    "w-full px-3 py-1.5 rounded text-sm font-medium flex items-center justify-center gap-2 disabled:opacity-50",
+                    isPaused
+                      ? "bg-green-600 text-white hover:bg-green-700"
+                      : "bg-orange-500 text-white hover:bg-orange-600"
+                  )}
+                >
+                  {isPaused ? (
+                    <>
+                      <Play className="w-4 h-4" /> Resume Trading
+                    </>
+                  ) : (
+                    <>
+                      <Pause className="w-4 h-4" /> Pause Trading
+                    </>
+                  )}
+                </button>
+
+                {/* MIS Toggle */}
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleToggleMIS}
+                    disabled={adminLoading}
+                    className={cn(
+                      "px-3 py-1 rounded text-sm disabled:opacity-50",
+                      status?.capital.mis_enabled
+                        ? "bg-green-100 text-green-700"
+                        : "bg-gray-200 text-gray-600"
+                    )}
+                  >
+                    MIS: {status?.capital.mis_enabled ? "ON" : "OFF"}
+                  </button>
+                  <span className="text-xs text-gray-500">
+                    {status?.capital.mis_enabled ? "5x leverage" : "CNC mode"}
+                  </span>
+                </div>
+
+                {/* Capital Input */}
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    value={capitalInput}
+                    onChange={(e) => setCapitalInput(e.target.value)}
+                    placeholder="Capital"
+                    className="w-24 px-2 py-1 border rounded text-sm dark:bg-gray-700 dark:border-gray-600"
+                  />
+                  <button
+                    onClick={handleSetCapital}
+                    disabled={adminLoading || !capitalInput}
+                    className="px-2 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    Set
+                  </button>
+                  <span className="text-xs text-gray-500">
+                    {status && formatINR(status.capital.total)}
+                  </span>
+                </div>
+
+                {/* Logout */}
+                <button
+                  onClick={clearToken}
+                  className="text-xs text-gray-500 hover:text-red-600 flex items-center gap-1"
+                >
+                  <LogOut className="w-3 h-3" /> Logout
+                </button>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Refresh controls */}
         <div className="flex items-center gap-3">
           <label className="flex items-center gap-2 text-sm">
             <input
@@ -133,9 +417,8 @@ export default function InstancesPage() {
               onChange={(e) => setAutoRefresh(e.target.checked)}
               className="rounded"
             />
-            Auto-refresh (5s)
+            Auto (5s)
           </label>
-
           <button
             onClick={() => {
               loadInstances();
@@ -144,139 +427,60 @@ export default function InstancesPage() {
             disabled={loading}
             className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50"
           >
-            <RefreshCw className={`w-5 h-5 ${loading ? "animate-spin" : ""}`} />
+            <RefreshCw className={cn("w-5 h-5", loading && "animate-spin")} />
           </button>
         </div>
       </div>
 
-      {/* Instance Selector */}
-      <div className="flex flex-wrap gap-2">
-        {instances.map((instance) => (
-          <button
-            key={instance.name}
-            onClick={() => setSelectedInstance(instance.name)}
-            className={`px-4 py-2 rounded-lg border flex items-center gap-2 transition-colors ${
-              selectedInstance === instance.name
-                ? "bg-blue-50 border-blue-300 dark:bg-blue-900/30 dark:border-blue-700"
-                : "hover:bg-gray-50 dark:hover:bg-gray-800"
-            }`}
-          >
-            <Circle className={`w-2 h-2 fill-current ${getStatusColor(instance.status)}`} />
-            <span className="font-medium">{instance.name}</span>
-            <span className="text-xs text-gray-500">
-              {instance.type === "live" ? "🔴 LIVE" : "📝 Paper"}
-            </span>
-          </button>
-        ))}
-        {instances.length === 0 && (
-          <div className="text-gray-500 text-sm">No instances found. Start engines with --health-port flag.</div>
-        )}
-      </div>
-
+      {/* Error */}
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
-          <AlertCircle className="w-5 h-5 text-red-500" />
-          <div>
-            <p className="text-red-700 font-medium">Connection Error</p>
-            <p className="text-red-600 text-sm">{error}</p>
-          </div>
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center gap-2">
+          <AlertTriangle className="w-5 h-5 text-red-500" />
+          <span className="text-red-700 text-sm">{error}</span>
         </div>
       )}
 
       {selectedInstance && status && (
         <>
-          {/* Admin Panel (for live instances) */}
-          {selectedInstanceData?.type === "live" && (
-            <AdminPanel
-              instance={selectedInstance}
-              status={status}
-              positions={positions}
-              brokerFunds={brokerFunds}
-              onRefresh={loadInstanceDetails}
-            />
-          )}
-
-          {/* Status Overview */}
+          {/* PnL Summary */}
           <section>
-            <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
-              <Activity className="w-5 h-5" />
-              Status: {selectedInstance}
-            </h2>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <MetricCard
-                label="State"
-                value={status.state}
-                delta={status.state === "trading" ? "up" : undefined}
+                label="Total PnL"
+                value={formatINR(totalPnl)}
+                delta={totalPnl >= 0 ? "up" : "down"}
               />
               <MetricCard
-                label="Uptime"
-                value={`${Math.floor(status.uptime_seconds / 60)}m`}
+                label="Realized"
+                value={formatINR(realizedPnl)}
+                help="Booked P&L from closed trades"
               />
               <MetricCard
-                label="Positions"
-                value={status.positions_count}
+                label="Unrealized"
+                value={formatINR(unrealizedPnl)}
+                help="Paper P&L from open positions"
               />
+              <MetricCard label="Open Positions" value={positions.length} />
+            </div>
+          </section>
+
+          {/* Trade Stats */}
+          <section>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <MetricCard label="Closed Trades" value={closedTrades?.count || 0} />
+              <MetricCard label="Winners" value={closedTrades?.winners || 0} />
+              <MetricCard label="Losers" value={closedTrades?.losers || 0} />
               <MetricCard
-                label="Unrealized P&L"
-                value={formatINR(status.unrealized_pnl)}
-                delta={status.unrealized_pnl >= 0 ? "up" : "down"}
+                label="Win Rate"
+                value={`${(closedTrades?.win_rate || 0).toFixed(1)}%`}
               />
             </div>
           </section>
 
-          {/* Broker DMAT Balance */}
-          {brokerFunds && !brokerFunds.error && (
-            <section>
-              <h2 className="text-lg font-semibold mb-3">🏦 Broker Account (Kite DMAT)</h2>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <MetricCard label="Available Cash" value={formatINR(brokerFunds.available_cash)} />
-                <MetricCard label="Available Margin" value={formatINR(brokerFunds.available_margin)} />
-                <MetricCard label="Used Margin" value={formatINR(brokerFunds.used_margin)} />
-                <MetricCard label="Net Balance" value={formatINR(brokerFunds.net)} />
-              </div>
-            </section>
-          )}
-
-          {/* Engine Capital (allocation for this session) */}
-          {status.capital && (
-            <section>
-              <h2 className="text-lg font-semibold mb-3">💰 Engine Capital</h2>
-              {/* Warning if allocated capital exceeds total DMAT capacity (available + already used margin) */}
-              {brokerFunds && !brokerFunds.error && status.capital.total > (brokerFunds.available_margin + brokerFunds.used_margin) && (
-                <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 mb-3 flex items-center gap-2">
-                  <AlertCircle className="w-5 h-5 text-orange-500 flex-shrink-0" />
-                  <div className="text-sm text-orange-700">
-                    <span className="font-medium">Warning:</span> Allocated capital ({formatINR(status.capital.total)}) exceeds total DMAT capacity ({formatINR(brokerFunds.available_margin + brokerFunds.used_margin)}). Orders may be rejected by broker.
-                  </div>
-                </div>
-              )}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <MetricCard label="Allocated" value={formatINR(status.capital.total)} />
-                <MetricCard label="Available" value={formatINR(status.capital.available)} />
-                <MetricCard label="Margin Used" value={formatINR(status.capital.margin_used)} />
-                <MetricCard
-                  label="MIS Mode"
-                  value={status.capital.mis_enabled ? "ON (5x)" : "OFF"}
-                />
-              </div>
-            </section>
-          )}
-
-          {/* Metrics */}
-          <section>
-            <h2 className="text-lg font-semibold mb-3">📊 Session Metrics</h2>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <MetricCard label="Trades Entered" value={status.metrics.trades_entered} />
-              <MetricCard label="Trades Exited" value={status.metrics.trades_exited} />
-              <MetricCard label="Errors" value={status.metrics.errors} />
-              <MetricCard label="Admin Actions" value={status.metrics.admin_actions} />
-            </div>
-          </section>
-
-          {/* Positions Table - matches PositionsTable.tsx format */}
+          {/* Open Positions Table */}
           <section>
             <h2 className="text-lg font-semibold mb-3">
-              📈 Open Positions ({positions.length})
+              Open Positions ({positions.length})
             </h2>
             <div className="bg-white dark:bg-gray-800 rounded-lg border shadow-sm overflow-x-auto">
               <table className="w-full text-sm min-w-[700px]">
@@ -291,61 +495,83 @@ export default function InstancesPage() {
                     <th className="py-3 px-2">Unrealized</th>
                     <th className="py-3 px-2">Total PnL</th>
                     <th className="py-3 px-2 hidden md:table-cell">Entry Time</th>
-                    <th className="py-3 px-2 hidden lg:table-cell">T1 Exit</th>
-                    {isAdmin && selectedInstanceData?.type === "live" && (
-                      <th className="py-3 px-2">Action</th>
-                    )}
+                    {isAdmin && isLiveInstance && <th className="py-3 px-2">Action</th>}
                   </tr>
                 </thead>
                 <tbody>
                   {positions.length === 0 ? (
                     <tr>
-                      <td colSpan={11} className="py-8 text-center text-gray-500">
+                      <td colSpan={10} className="py-8 text-center text-gray-500">
                         No open positions
                       </td>
                     </tr>
                   ) : (
                     positions.map((pos) => {
-                      const unrealizedPnl = pos.pnl || 0;
-                      const bookedPnl = pos.booked_pnl || 0;
-                      const totalPnl = unrealizedPnl + bookedPnl;
-                      const hasPartialExit = pos.t1_done || false;
+                      const posUnrealized = pos.pnl || 0;
+                      const posBooked = pos.booked_pnl || 0;
+                      const posTotal = posUnrealized + posBooked;
+                      const hasT1 = pos.t1_done || false;
 
                       return (
-                        <tr key={pos.symbol} className="border-b hover:bg-gray-50 dark:hover:bg-gray-800">
+                        <tr
+                          key={pos.symbol}
+                          className="border-b hover:bg-gray-50 dark:hover:bg-gray-800"
+                        >
                           <td className="py-3 px-2 font-medium">
                             {pos.symbol}
-                            {hasPartialExit && (
+                            {hasT1 && (
                               <span className="ml-1 px-1.5 py-0.5 text-xs bg-blue-100 text-blue-700 rounded">
                                 T1
                               </span>
                             )}
                           </td>
                           <td className="py-3 px-2">
-                            <span className={cn(
-                              "px-2 py-1 rounded text-xs font-medium",
-                              pos.side === "SELL" ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700"
-                            )}>
+                            <span
+                              className={cn(
+                                "px-2 py-1 rounded text-xs font-medium",
+                                pos.side === "SELL"
+                                  ? "bg-red-100 text-red-700"
+                                  : "bg-green-100 text-green-700"
+                              )}
+                            >
                               {pos.side === "SELL" ? "SHORT" : "LONG"}
                             </span>
                           </td>
                           <td className="py-3 px-2">{formatINR(pos.entry)}</td>
                           <td className="py-3 px-2">{formatINR(pos.ltp || pos.entry)}</td>
                           <td className="py-3 px-2">{pos.qty}</td>
-                          <td className={cn("py-3 px-2", bookedPnl !== 0 ? (bookedPnl >= 0 ? "text-green-600" : "text-red-600") : "text-gray-400")}>
-                            {bookedPnl !== 0 ? formatINR(bookedPnl) : "-"}
+                          <td
+                            className={cn(
+                              "py-3 px-2",
+                              posBooked !== 0
+                                ? posBooked >= 0
+                                  ? "text-green-600"
+                                  : "text-red-600"
+                                : "text-gray-400"
+                            )}
+                          >
+                            {posBooked !== 0 ? formatINR(posBooked) : "-"}
                           </td>
-                          <td className={cn("py-3 px-2", unrealizedPnl >= 0 ? "text-green-600" : "text-red-600")}>
-                            {formatINR(unrealizedPnl)}
+                          <td
+                            className={cn(
+                              "py-3 px-2",
+                              posUnrealized >= 0 ? "text-green-600" : "text-red-600"
+                            )}
+                          >
+                            {formatINR(posUnrealized)}
                           </td>
-                          <td className={cn("py-3 px-2 font-medium", totalPnl >= 0 ? "text-green-600" : "text-red-600")}>
-                            {formatINR(totalPnl)}
+                          <td
+                            className={cn(
+                              "py-3 px-2 font-medium",
+                              posTotal >= 0 ? "text-green-600" : "text-red-600"
+                            )}
+                          >
+                            {formatINR(posTotal)}
                           </td>
-                          <td className="py-3 px-2 hidden md:table-cell">{pos.entry_time ? formatTime(pos.entry_time) : "-"}</td>
-                          <td className="py-3 px-2 hidden lg:table-cell">
-                            {hasPartialExit && pos.t1_exit_time ? formatTime(pos.t1_exit_time) : "-"}
+                          <td className="py-3 px-2 hidden md:table-cell">
+                            {pos.entry_time ? formatTime(pos.entry_time) : "-"}
                           </td>
-                          {isAdmin && selectedInstanceData?.type === "live" && (
+                          {isAdmin && isLiveInstance && (
                             <td className="py-3 px-2">
                               <ExitButton
                                 instance={selectedInstance}
@@ -365,15 +591,10 @@ export default function InstancesPage() {
             </div>
           </section>
 
-          {/* Closed Trades Table - matches ClosedPositionsTable format */}
+          {/* Closed Positions Table */}
           <section>
             <h2 className="text-lg font-semibold mb-3">
-              ✅ Closed Positions ({closedTrades?.count || 0})
-              {closedTrades && closedTrades.count > 0 && (
-                <span className={`ml-2 text-sm font-normal ${closedTrades.total_pnl >= 0 ? "text-green-600" : "text-red-600"}`}>
-                  {formatINR(closedTrades.total_pnl)} • {closedTrades.win_rate}% WR
-                </span>
-              )}
+              Closed Positions ({closedTrades?.count || 0})
             </h2>
             <div className="bg-white dark:bg-gray-800 rounded-lg border shadow-sm overflow-x-auto">
               <table className="w-full text-sm min-w-[600px]">
@@ -392,7 +613,7 @@ export default function InstancesPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(!closedTrades || closedTrades.trades.length === 0) ? (
+                  {!closedTrades || closedTrades.trades.length === 0 ? (
                     <tr>
                       <td colSpan={10} className="py-8 text-center text-gray-500">
                         No closed positions this session
@@ -404,28 +625,49 @@ export default function InstancesPage() {
                       const pnlPct = positionCost > 0 ? (trade.pnl / positionCost) * 100 : 0;
 
                       return (
-                        <tr key={`${trade.symbol}-${idx}`} className="border-b hover:bg-gray-50 dark:hover:bg-gray-800">
+                        <tr
+                          key={`${trade.symbol}-${idx}`}
+                          className="border-b hover:bg-gray-50 dark:hover:bg-gray-800"
+                        >
                           <td className="py-3 px-2 font-medium">{trade.symbol}</td>
                           <td className="py-3 px-2">
-                            <span className={cn(
-                              "px-2 py-1 rounded text-xs font-medium",
-                              trade.side === "SELL" ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700"
-                            )}>
+                            <span
+                              className={cn(
+                                "px-2 py-1 rounded text-xs font-medium",
+                                trade.side === "SELL"
+                                  ? "bg-red-100 text-red-700"
+                                  : "bg-green-100 text-green-700"
+                              )}
+                            >
                               {trade.side === "SELL" ? "SHORT" : "LONG"}
                             </span>
                           </td>
                           <td className="py-3 px-2">{formatINR(trade.entry_price)}</td>
                           <td className="py-3 px-2">{formatINR(trade.exit_price)}</td>
                           <td className="py-3 px-2">{trade.qty}</td>
-                          <td className={cn("py-3 px-2 font-medium", trade.pnl >= 0 ? "text-green-600" : "text-red-600")}>
+                          <td
+                            className={cn(
+                              "py-3 px-2 font-medium",
+                              trade.pnl >= 0 ? "text-green-600" : "text-red-600"
+                            )}
+                          >
                             {formatINR(trade.pnl)}
                           </td>
-                          <td className={cn("py-3 px-2", pnlPct >= 0 ? "text-green-600" : "text-red-600")}>
+                          <td
+                            className={cn(
+                              "py-3 px-2",
+                              pnlPct >= 0 ? "text-green-600" : "text-red-600"
+                            )}
+                          >
                             {formatPct(pnlPct)}
                           </td>
                           <td className="py-3 px-2">{trade.exit_reason}</td>
-                          <td className="py-3 px-2 hidden md:table-cell">{trade.entry_time ? formatTime(trade.entry_time) : "-"}</td>
-                          <td className="py-3 px-2 hidden lg:table-cell">{trade.exit_time ? formatTime(trade.exit_time) : "-"}</td>
+                          <td className="py-3 px-2 hidden md:table-cell">
+                            {trade.entry_time ? formatTime(trade.entry_time) : "-"}
+                          </td>
+                          <td className="py-3 px-2 hidden lg:table-cell">
+                            {trade.exit_time ? formatTime(trade.exit_time) : "-"}
+                          </td>
                         </tr>
                       );
                     })
@@ -435,10 +677,74 @@ export default function InstancesPage() {
             </div>
           </section>
 
+          {/* Collapsible Details Section */}
+          <section>
+            <button
+              onClick={() => setShowDetails(!showDetails)}
+              className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700"
+            >
+              {showDetails ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+              Broker & Engine Details
+            </button>
+
+            {showDetails && (
+              <div className="mt-3 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border">
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 text-sm">
+                  {/* DMAT */}
+                  {brokerFunds && !brokerFunds.error && (
+                    <>
+                      <div>
+                        <span className="text-gray-500">DMAT Available</span>
+                        <p className="font-medium">{formatINR(brokerFunds.available_margin)}</p>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">DMAT Used</span>
+                        <p className="font-medium">{formatINR(brokerFunds.used_margin)}</p>
+                      </div>
+                    </>
+                  )}
+
+                  {/* Engine Capital */}
+                  {status.capital && (
+                    <>
+                      <div>
+                        <span className="text-gray-500">Engine Capital</span>
+                        <p className="font-medium">{formatINR(status.capital.total)}</p>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">Margin Used</span>
+                        <p className="font-medium">{formatINR(status.capital.margin_used)}</p>
+                      </div>
+                    </>
+                  )}
+
+                  {/* Uptime & Errors */}
+                  <div>
+                    <span className="text-gray-500">Uptime</span>
+                    <p className="font-medium">{Math.floor(status.uptime_seconds / 60)}m</p>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Errors</span>
+                    <p className="font-medium">{status.metrics.errors}</p>
+                  </div>
+                </div>
+
+                {/* Capital warning */}
+                {brokerFunds &&
+                  !brokerFunds.error &&
+                  status.capital &&
+                  status.capital.total > brokerFunds.available_margin + brokerFunds.used_margin && (
+                    <div className="mt-3 p-2 bg-orange-50 border border-orange-200 rounded text-sm text-orange-700 flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4" />
+                      Engine capital exceeds DMAT capacity. Orders may be rejected.
+                    </div>
+                  )}
+              </div>
+            )}
+          </section>
+
           {/* Last Updated */}
-          <p className="text-sm text-gray-500 text-center">
-            Last updated: {lastUpdated}
-          </p>
+          <p className="text-sm text-gray-500 text-center">Last updated: {lastUpdated}</p>
         </>
       )}
     </div>
