@@ -36,18 +36,30 @@ interface UseInstanceWebSocketResult {
 }
 
 /**
+ * Map HTTP port to WebSocket port.
+ * Hardcoded mapping for each instance to avoid port conflicts.
+ */
+const WS_PORT_MAP: Record<number, number> = {
+  8081: 8091, // fixed_risk instance
+  8082: 8092, // relative instance
+  8083: 8093, // 1 year testing instance
+  8090: 8094, // live trading
+};
+
+/**
  * Convert HTTP URL to WebSocket URL.
- * Assumes WS server runs on HTTP port + 1.
+ * Uses hardcoded port mapping for each instance.
  *
  * @example
- * httpToWsUrl("http://localhost:8080") -> "ws://localhost:8081"
- * httpToWsUrl("https://example.com:8080") -> "wss://example.com:8081"
+ * httpToWsUrl("http://localhost:8081") -> "ws://localhost:8091"
+ * httpToWsUrl("http://localhost:8090") -> "ws://localhost:8094"
  */
 function httpToWsUrl(httpUrl: string): string {
   const url = new URL(httpUrl);
   const protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  const port = parseInt(url.port || "8080", 10) + 1;
-  return `${protocol}//${url.hostname}:${port}`;
+  const httpPort = parseInt(url.port || "8080", 10);
+  const wsPort = WS_PORT_MAP[httpPort] || httpPort + 1; // Fallback to port + 1
+  return `${protocol}//${url.hostname}:${wsPort}`;
 }
 
 export function useInstanceWebSocket({
