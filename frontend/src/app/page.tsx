@@ -60,6 +60,7 @@ export default function HomePage() {
   const [brokerFunds, setBrokerFunds] = useState<BrokerFunds | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isOffline, setIsOffline] = useState(false);  // Instance not running
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<string>("");
 
@@ -200,8 +201,13 @@ export default function HomePage() {
       setClosedTrades(closedData);
       setLastUpdated(new Date().toLocaleTimeString());
       setError(null);
+      setIsOffline(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load instance details");
+      const message = err instanceof Error ? err.message : "Failed to load instance details";
+      // Detect connection errors (instance not running)
+      const isConnectionError = message.includes("fetch") || message.includes("ECONNREFUSED") || message.includes("Failed to load");
+      setIsOffline(isConnectionError);
+      setError(isConnectionError ? null : message);  // Don't show error for offline instances
       setStatus(null);
       setPositions([]);
       setBrokerFunds(null);
@@ -539,6 +545,20 @@ export default function HomePage() {
         <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center gap-2">
           <AlertTriangle className="w-5 h-5 text-red-500" />
           <span className="text-red-700 text-sm">{error}</span>
+        </div>
+      )}
+
+      {/* No Active Session */}
+      {selectedInstance && isOffline && !loading && (
+        <div className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-8 text-center">
+          <WifiOff className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+          <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-2">No Active Session</h3>
+          <p className="text-gray-500 dark:text-gray-400 text-sm mb-4">
+            The trading engine for <span className="font-medium">{selectedInstance}</span> is not running.
+          </p>
+          <p className="text-gray-400 dark:text-gray-500 text-xs">
+            Start the engine with: <code className="bg-gray-200 dark:bg-gray-700 px-2 py-1 rounded">python main.py --config {selectedInstance}</code>
+          </p>
         </div>
       )}
 
