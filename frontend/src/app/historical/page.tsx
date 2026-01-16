@@ -4,7 +4,6 @@ import { useState, useEffect, useMemo } from "react";
 import dynamic from "next/dynamic";
 import { MetricCard } from "@/components/MetricCard";
 import { formatINR } from "@/lib/utils";
-import { useConfig } from "@/lib/ConfigContext";
 import {
   AggregateData,
   HistoricalTrade,
@@ -46,9 +45,10 @@ const PnLHistogramChart = dynamic(
 );
 
 type TabType = "overview" | "setups" | "daily" | "trades";
+type ConfigType = "fixed" | "relative" | "1year";
 
 export default function HistoricalPage() {
-  const { configType } = useConfig();
+  const [configType, setConfigType] = useState<ConfigType>("fixed");
   const [data, setData] = useState<AggregateData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -118,6 +118,15 @@ export default function HistoricalPage() {
         </div>
 
         <div className="flex items-center gap-3 flex-wrap">
+          <select
+            value={configType}
+            onChange={(e) => setConfigType(e.target.value as ConfigType)}
+            className="text-sm border rounded-lg px-3 py-2 bg-white dark:bg-gray-800 font-medium"
+          >
+            <option value="fixed">Fixed (1K)</option>
+            <option value="relative">Relative (1%)</option>
+            <option value="1year">1 Year</option>
+          </select>
           <input
             type="date"
             value={dateFrom}

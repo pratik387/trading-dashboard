@@ -3,19 +3,16 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { useConfig } from "@/lib/ConfigContext";
 import { useAdmin } from "@/lib/AdminContext";
-import { TrendingUp, History, Server, Key } from "lucide-react";
+import { Server, History, Key } from "lucide-react";
 
 const navItems = [
-  { href: "/", label: "Live Trading", icon: TrendingUp },
-  { href: "/instances", label: "Instances", icon: Server },
+  { href: "/", label: "Instances", icon: Server },
   { href: "/historical", label: "Historical", icon: History },
 ];
 
 export function Navbar() {
   const pathname = usePathname();
-  const { configType, setConfigType } = useConfig();
   const { isAdmin } = useAdmin();
 
   return (
@@ -59,15 +56,6 @@ export function Navbar() {
                 Admin
               </span>
             )}
-            <select
-              value={configType}
-              onChange={(e) => setConfigType(e.target.value as "fixed" | "relative" | "1year")}
-              className="text-sm border rounded-lg px-3 py-1.5 bg-white dark:bg-gray-800"
-            >
-              <option value="fixed">Fixed (₹1K)</option>
-              <option value="relative">Relative (1%)</option>
-              <option value="1year">1 Year</option>
-            </select>
           </div>
         </div>
       </div>

@@ -211,6 +211,7 @@ export interface InstanceStatus {
   uptime_seconds: number;
   positions_count: number;
   unrealized_pnl: number;
+  booked_pnl?: number;  // T1 partial profits from open positions
   capital: {
     available: number;
     margin_used: number;
