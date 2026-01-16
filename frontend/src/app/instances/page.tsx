@@ -73,8 +73,9 @@ export default function InstancesPage() {
   const [adminMessage, setAdminMessage] = useState<{ text: string; isError: boolean } | null>(null);
   const [confirmExitAll, setConfirmExitAll] = useState(false);
 
-  // Collapsible details
-  const [showDetails, setShowDetails] = useState(false);
+  // Collapsible sections
+  const [showEngineHealth, setShowEngineHealth] = useState(false);
+  const [showBrokerDetails, setShowBrokerDetails] = useState(false);
 
   // Get selected instance data for WebSocket URL construction
   const selectedInstanceData = instances.find((i) => i.name === selectedInstance);
@@ -575,6 +576,35 @@ export default function InstancesPage() {
             </div>
           </section>
 
+          {/* Capital Usage */}
+          <section>
+            <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
+              💰 Capital Usage {status?.capital.mis_enabled && <span className="text-xs font-normal px-2 py-0.5 bg-green-100 text-green-700 rounded">MIS 5x</span>}
+            </h2>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <MetricCard
+                label="Engine Capital"
+                value={formatINR(status?.capital.total || 0)}
+                help="Total capital allocated to trading engine"
+              />
+              <MetricCard
+                label="Margin Used"
+                value={formatINR(status?.capital.margin_used || 0)}
+                help="Capital deployed in open positions"
+              />
+              <MetricCard
+                label="Available"
+                value={formatINR(status?.capital.available || 0)}
+                help="Capital available for new positions"
+              />
+              <MetricCard
+                label="Utilization"
+                value={`${status?.capital.total ? ((status.capital.margin_used / status.capital.total) * 100).toFixed(1) : 0}%`}
+                help="Percentage of capital currently in use"
+              />
+            </div>
+          </section>
+
           {/* Open Positions Table */}
           <section>
             <h2 className="text-lg font-semibold mb-3">
@@ -808,22 +838,63 @@ export default function InstancesPage() {
             </div>
           </section>
 
-          {/* Collapsible Details Section */}
-          <section>
-            <button
-              onClick={() => setShowDetails(!showDetails)}
-              className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700"
-            >
-              {showDetails ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-              Broker & Engine Details
-            </button>
+          {/* Collapsible Sections */}
+          <section className="space-y-2">
+            {/* Engine Health - collapsible */}
+            <div>
+              <button
+                onClick={() => setShowEngineHealth(!showEngineHealth)}
+                className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+              >
+                {showEngineHealth ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                Engine Health
+              </button>
 
-            {showDetails && (
-              <div className="mt-3 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border">
-                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 text-sm">
-                  {/* DMAT */}
-                  {brokerFunds && !brokerFunds.error && (
-                    <>
+              {showEngineHealth && (
+                <div className="mt-2 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                    <div>
+                      <span className="text-gray-500">State</span>
+                      <p className={cn(
+                        "font-medium",
+                        status.state === "running" ? "text-green-600" : status.state === "paused" ? "text-orange-600" : "text-gray-600"
+                      )}>
+                        {status.state.toUpperCase()}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="text-gray-500">Uptime</span>
+                      <p className="font-medium">{Math.floor(status.uptime_seconds / 60)}m</p>
+                    </div>
+                    <div>
+                      <span className="text-gray-500">Errors</span>
+                      <p className={cn("font-medium", status.metrics.errors > 0 ? "text-red-600" : "")}>
+                        {status.metrics.errors}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="text-gray-500">Admin Actions</span>
+                      <p className="font-medium">{status.metrics.admin_actions}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Broker Details - collapsible, collapsed by default, only for live instances */}
+            {isLiveInstance && brokerFunds && !brokerFunds.error && (
+              <div>
+                <button
+                  onClick={() => setShowBrokerDetails(!showBrokerDetails)}
+                  className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+                >
+                  {showBrokerDetails ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                  Broker Details (DMAT)
+                </button>
+
+                {showBrokerDetails && (
+                  <div className="mt-2 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border">
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                       <div>
                         <span className="text-gray-500">DMAT Available</span>
                         <p className="font-medium">{formatINR(brokerFunds.available_margin)}</p>
@@ -832,44 +903,26 @@ export default function InstancesPage() {
                         <span className="text-gray-500">DMAT Used</span>
                         <p className="font-medium">{formatINR(brokerFunds.used_margin)}</p>
                       </div>
-                    </>
-                  )}
-
-                  {/* Engine Capital */}
-                  {status.capital && (
-                    <>
                       <div>
-                        <span className="text-gray-500">Engine Capital</span>
-                        <p className="font-medium">{formatINR(status.capital.total)}</p>
+                        <span className="text-gray-500">Net</span>
+                        <p className="font-medium">{formatINR(brokerFunds.net)}</p>
                       </div>
                       <div>
-                        <span className="text-gray-500">Margin Used</span>
-                        <p className="font-medium">{formatINR(status.capital.margin_used)}</p>
+                        <span className="text-gray-500">Available Cash</span>
+                        <p className="font-medium">{formatINR(brokerFunds.available_cash)}</p>
                       </div>
-                    </>
-                  )}
-
-                  {/* Uptime & Errors */}
-                  <div>
-                    <span className="text-gray-500">Uptime</span>
-                    <p className="font-medium">{Math.floor(status.uptime_seconds / 60)}m</p>
-                  </div>
-                  <div>
-                    <span className="text-gray-500">Errors</span>
-                    <p className="font-medium">{status.metrics.errors}</p>
-                  </div>
-                </div>
-
-                {/* Capital warning */}
-                {brokerFunds &&
-                  !brokerFunds.error &&
-                  status.capital &&
-                  status.capital.total > brokerFunds.available_margin + brokerFunds.used_margin && (
-                    <div className="mt-3 p-2 bg-orange-50 border border-orange-200 rounded text-sm text-orange-700 flex items-center gap-2">
-                      <AlertTriangle className="w-4 h-4" />
-                      Engine capital exceeds DMAT capacity. Orders may be rejected.
                     </div>
-                  )}
+
+                    {/* Capital warning - only shown when broker details expanded */}
+                    {status.capital &&
+                      status.capital.total > brokerFunds.available_margin + brokerFunds.used_margin && (
+                        <div className="mt-3 p-2 bg-orange-50 border border-orange-200 rounded text-sm text-orange-700 flex items-center gap-2">
+                          <AlertTriangle className="w-4 h-4" />
+                          Engine capital exceeds DMAT capacity. Orders may be rejected.
+                        </div>
+                      )}
+                  </div>
+                )}
               </div>
             )}
           </section>
