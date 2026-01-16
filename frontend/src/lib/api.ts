@@ -326,13 +326,14 @@ async function adminRequest(instance: string, endpoint: string, body: object, to
   });
 
   const data = await res.json();
-  if (!res.ok) {
-    // 401 = invalid/stale token - throw AuthError so UI can clear the token
-    if (res.status === 401) {
+
+  if (data.error) {
+    if (data.error.toLowerCase().includes("unauthorized")) {
       throw new AuthError("Invalid or expired admin token");
     }
-    throw new Error(data.detail || data.error || `Admin request failed: ${res.status}`);
+    throw new Error(data.error);
   }
+
   return data;
 }
 
