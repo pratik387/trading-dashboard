@@ -307,6 +307,14 @@ export async function fetchInstanceClosedTrades(instance: string): Promise<Close
 
 // ============ Admin APIs (require X-Admin-Token header) ============
 
+// Custom error class to identify auth failures
+export class AuthError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AuthError";
+  }
+}
+
 async function adminRequest(instance: string, endpoint: string, body: object, token: string): Promise<any> {
   const res = await fetch(`${API_BASE}/api/instances/${instance}/admin/${endpoint}`, {
     method: "POST",
@@ -319,6 +327,10 @@ async function adminRequest(instance: string, endpoint: string, body: object, to
 
   const data = await res.json();
   if (!res.ok) {
+    // 401 = invalid/stale token - throw AuthError so UI can clear the token
+    if (res.status === 401) {
+      throw new AuthError("Invalid or expired admin token");
+    }
     throw new Error(data.detail || data.error || `Admin request failed: ${res.status}`);
   }
   return data;

@@ -12,6 +12,7 @@ import {
   adminExitAll,
   adminPause,
   adminResume,
+  AuthError,
 } from "@/lib/api";
 import { formatINR } from "@/lib/utils";
 import { Key, LogOut, IndianRupee, ToggleLeft, ToggleRight, X, AlertTriangle, Pause, Play } from "lucide-react";
@@ -47,6 +48,16 @@ export function AdminPanel({ instance, status, positions, brokerFunds, onRefresh
     }, 3000);
   };
 
+  // Handle errors from admin API calls - clears token on auth failure
+  const handleApiError = (err: unknown) => {
+    if (err instanceof AuthError) {
+      clearToken();
+      showMessage("Admin token is invalid or expired. Please re-enter.", true);
+    } else {
+      showMessage(err instanceof Error ? err.message : "Request failed", true);
+    }
+  };
+
   const handleSetToken = () => {
     if (tokenInput.trim()) {
       setAdminToken(tokenInput.trim());
@@ -69,7 +80,7 @@ export function AdminPanel({ instance, status, positions, brokerFunds, onRefresh
       setCapitalInput("");
       onRefresh();
     } catch (err) {
-      showMessage(err instanceof Error ? err.message : "Failed to set capital", true);
+      handleApiError(err);
     } finally {
       setLoading(false);
     }
@@ -85,7 +96,7 @@ export function AdminPanel({ instance, status, positions, brokerFunds, onRefresh
       showMessage(`MIS ${newValue ? "enabled" : "disabled"}`);
       onRefresh();
     } catch (err) {
-      showMessage(err instanceof Error ? err.message : "Failed to toggle MIS", true);
+      handleApiError(err);
     } finally {
       setLoading(false);
     }
@@ -100,7 +111,7 @@ export function AdminPanel({ instance, status, positions, brokerFunds, onRefresh
       showMessage(`Exit order placed for ${symbol}`);
       onRefresh();
     } catch (err) {
-      showMessage(err instanceof Error ? err.message : `Failed to exit ${symbol}`, true);
+      handleApiError(err);
     } finally {
       setLoading(false);
     }
@@ -116,7 +127,7 @@ export function AdminPanel({ instance, status, positions, brokerFunds, onRefresh
       setConfirmExitAll(false);
       onRefresh();
     } catch (err) {
-      showMessage(err instanceof Error ? err.message : "Failed to exit all", true);
+      handleApiError(err);
     } finally {
       setLoading(false);
     }
@@ -131,7 +142,7 @@ export function AdminPanel({ instance, status, positions, brokerFunds, onRefresh
       showMessage("Trading paused - no new entries");
       onRefresh();
     } catch (err) {
-      showMessage(err instanceof Error ? err.message : "Failed to pause", true);
+      handleApiError(err);
     } finally {
       setLoading(false);
     }
@@ -146,7 +157,7 @@ export function AdminPanel({ instance, status, positions, brokerFunds, onRefresh
       showMessage("Trading resumed");
       onRefresh();
     } catch (err) {
-      showMessage(err instanceof Error ? err.message : "Failed to resume", true);
+      handleApiError(err);
     } finally {
       setLoading(false);
     }
@@ -362,9 +373,10 @@ export function ExitButton({
   t1Done?: boolean;  // If true, only show Full exit (50% already taken)
   onSuccess: () => void;
 }) {
-  const { adminToken, isAdmin } = useAdmin();
+  const { adminToken, isAdmin, clearToken } = useAdmin();
   const [loading, setLoading] = useState(false);
   const [showPartial, setShowPartial] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   if (!isAdmin) return null;
 
@@ -375,6 +387,7 @@ export function ExitButton({
       return;
     }
     setLoading(true);
+    setError(null);
     try {
       console.log("[ExitButton] Calling adminExitPosition...");
       const result = await adminExitPosition(instance, symbol, exitQty, adminToken);
@@ -382,6 +395,13 @@ export function ExitButton({
       onSuccess();
     } catch (err) {
       console.error("Exit failed:", err);
+      if (err instanceof AuthError) {
+        clearToken();  // Clear invalid token
+        setError("Token expired");
+      } else {
+        setError("Failed");
+      }
+      setTimeout(() => setError(null), 2000);
     } finally {
       setLoading(false);
       setShowPartial(false);
@@ -392,6 +412,10 @@ export function ExitButton({
   // 1. T1 not already taken (t1Done is false)
   // 2. Qty is at least 2 (so 50% = at least 1)
   const canPartialExit = !t1Done && qty >= 2;
+
+  if (error) {
+    return <span className="text-xs text-red-500">{error}</span>;
+  }
 
   return (
     <div className="relative">
