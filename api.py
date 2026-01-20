@@ -309,8 +309,8 @@ async def get_aggregate_summary(config_type: str, date_from: str = None, date_to
             cumulative += d['pnl']
             d['cumulative_pnl'] = cumulative
 
-        gross_pnl = total_pnl + total_fees
-        net_pnl = total_pnl
+        gross_pnl = total_pnl
+        net_pnl = total_pnl - total_fees
 
         # Format setup stats
         setup_stats = []

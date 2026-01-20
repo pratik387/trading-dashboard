@@ -106,14 +106,16 @@ class OCIDataReader:
             # Extract run_id from prefix like "fixed/paper_20260101_084724/"
             run_id = prefix.rstrip('/').split('/')[-1]
 
-            # Parse timestamp from run_id (e.g., paper_20260101_084724)
+            # Parse timestamp from run_id (e.g., paper_20260101_084724 or live_20260101_084724)
             timestamp_str = None
-            if run_id.startswith('paper_'):
-                try:
-                    ts_part = run_id.replace('paper_', '')
-                    timestamp_str = datetime.strptime(ts_part, '%Y%m%d_%H%M%S').isoformat()
-                except:
-                    pass
+            for prefix in ['paper_', 'live_']:
+                if run_id.startswith(prefix):
+                    try:
+                        ts_part = run_id.replace(prefix, '')
+                        timestamp_str = datetime.strptime(ts_part, '%Y%m%d_%H%M%S').isoformat()
+                        break
+                    except:
+                        pass
 
             # Try to get performance.json for summary stats
             performance = self._get_performance(config_type, run_id)
