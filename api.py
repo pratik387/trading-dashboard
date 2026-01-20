@@ -143,14 +143,39 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize OCI reader
-reader = None
+# Initialize OCI readers
+# paper_reader for paper trading logs (fixed, relative, 1year)
+# live_reader for live trading logs (capital_10k)
+paper_reader = None
+live_reader = None
 
-def get_reader():
-    global reader
-    if reader is None:
-        reader = OCIDataReader()
-    return reader
+def get_reader(config_type: str = None):
+    """
+    Get the appropriate OCI reader based on config type.
+    - 'live' uses live-trading-logs bucket with capital_10k folder
+    - Others use paper-trading-logs bucket
+    """
+    global paper_reader, live_reader
+
+    if config_type == "live":
+        if live_reader is None:
+            live_reader = OCIDataReader(bucket_name='live-trading-logs')
+        return live_reader
+    else:
+        if paper_reader is None:
+            paper_reader = OCIDataReader(bucket_name='paper-trading-logs')
+        return paper_reader
+
+
+def get_effective_config_type(config_type: str) -> str:
+    """
+    Map frontend config type to actual folder name in OCI bucket.
+    - 'live' maps to 'capital_10k' in live-trading-logs bucket
+    - Others remain unchanged
+    """
+    if config_type == "live":
+        return "capital_10k"
+    return config_type
 
 
 # ============ Response Models ============
@@ -179,9 +204,12 @@ async def root():
 
 @app.get("/api/config-types")
 async def list_config_types():
-    """List all config types (top-level folders like fixed, relative, 1year)"""
+    """List all config types (top-level folders like fixed, relative, 1year, live)"""
     try:
         config_types = get_reader().list_config_types()
+        # Add 'live' option (maps to capital_10k in live-trading-logs bucket)
+        if "live" not in config_types:
+            config_types.append("live")
         return {"config_types": config_types}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -191,7 +219,9 @@ async def list_config_types():
 async def list_runs(config_type: str, limit: int = 50):
     """List all runs for a config type"""
     try:
-        runs = get_reader().list_runs(config_type=config_type, limit=limit)
+        reader = get_reader(config_type)
+        effective_type = get_effective_config_type(config_type)
+        runs = reader.list_runs(config_type=effective_type, limit=limit)
         return {"config_type": config_type, "runs": runs, "count": len(runs)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -204,8 +234,9 @@ async def get_aggregate_summary(config_type: str, date_from: str = None, date_to
     Optionally filter by date range (YYYY-MM-DD format).
     """
     try:
-        reader = get_reader()
-        runs = reader.list_runs(config_type=config_type, limit=500)
+        reader = get_reader(config_type)
+        effective_type = get_effective_config_type(config_type)
+        runs = reader.list_runs(config_type=effective_type, limit=500)
 
         # Filter by date range if provided
         if date_from or date_to:
@@ -239,7 +270,7 @@ async def get_aggregate_summary(config_type: str, date_from: str = None, date_to
 
         for run in runs:
             run_id = run['run_id']
-            summary = reader.get_run_summary(config_type, run_id)
+            summary = reader.get_run_summary(effective_type, run_id)
 
             total_pnl += summary.get('total_pnl', 0)
             total_trades += summary.get('total_trades', 0)
@@ -327,10 +358,12 @@ async def get_aggregate_summary(config_type: str, date_from: str = None, date_to
 async def get_run(config_type: str, run_id: str):
     """Get run metadata and performance"""
     try:
-        performance = get_reader().get_performance(config_type, run_id)
+        reader = get_reader(config_type)
+        effective_type = get_effective_config_type(config_type)
+        performance = reader.get_performance(effective_type, run_id)
         if not performance:
             # Try to get basic info from list
-            runs = get_reader().list_runs(config_type=config_type, limit=100)
+            runs = reader.list_runs(config_type=effective_type, limit=100)
             for run in runs:
                 if run['run_id'] == run_id:
                     return run
@@ -350,7 +383,9 @@ async def get_run(config_type: str, run_id: str):
 async def list_run_files(config_type: str, run_id: str):
     """List all files in a run folder"""
     try:
-        files = get_reader().list_files(config_type, run_id)
+        reader = get_reader(config_type)
+        effective_type = get_effective_config_type(config_type)
+        files = reader.list_files(effective_type, run_id)
         return {"config_type": config_type, "run_id": run_id, "files": files}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -360,7 +395,9 @@ async def list_run_files(config_type: str, run_id: str):
 async def get_run_summary(config_type: str, run_id: str):
     """Get aggregate summary for a run"""
     try:
-        summary = get_reader().get_run_summary(config_type, run_id)
+        reader = get_reader(config_type)
+        effective_type = get_effective_config_type(config_type)
+        summary = reader.get_run_summary(effective_type, run_id)
         return summary
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -370,7 +407,9 @@ async def get_run_summary(config_type: str, run_id: str):
 async def get_analytics(config_type: str, run_id: str):
     """Get analytics data for a run"""
     try:
-        analytics = get_reader().get_analytics(config_type, run_id)
+        reader = get_reader(config_type)
+        effective_type = get_effective_config_type(config_type)
+        analytics = reader.get_analytics(effective_type, run_id)
         return {"config_type": config_type, "run_id": run_id, "analytics": analytics, "count": len(analytics)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -380,7 +419,9 @@ async def get_analytics(config_type: str, run_id: str):
 async def get_events(config_type: str, run_id: str):
     """Get all events (DECISION, TRIGGER, EXIT) for a run"""
     try:
-        events = get_reader().get_events(config_type, run_id)
+        reader = get_reader(config_type)
+        effective_type = get_effective_config_type(config_type)
+        events = reader.get_events(effective_type, run_id)
         return {"config_type": config_type, "run_id": run_id, "events": events, "count": len(events)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -390,7 +431,9 @@ async def get_events(config_type: str, run_id: str):
 async def get_decisions(config_type: str, run_id: str):
     """Get decision events for a run"""
     try:
-        decisions = get_reader().get_decisions(config_type, run_id)
+        reader = get_reader(config_type)
+        effective_type = get_effective_config_type(config_type)
+        decisions = reader.get_decisions(effective_type, run_id)
         return {"config_type": config_type, "run_id": run_id, "decisions": decisions, "count": len(decisions)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -400,7 +443,9 @@ async def get_decisions(config_type: str, run_id: str):
 async def get_planning(config_type: str, run_id: str):
     """Get planning data for a run"""
     try:
-        planning = get_reader().get_planning(config_type, run_id)
+        reader = get_reader(config_type)
+        effective_type = get_effective_config_type(config_type)
+        planning = reader.get_planning(effective_type, run_id)
         return {"config_type": config_type, "run_id": run_id, "planning": planning, "count": len(planning)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -410,7 +455,9 @@ async def get_planning(config_type: str, run_id: str):
 async def get_ranking(config_type: str, run_id: str):
     """Get ranking data for a run"""
     try:
-        ranking = get_reader().get_ranking(config_type, run_id)
+        reader = get_reader(config_type)
+        effective_type = get_effective_config_type(config_type)
+        ranking = reader.get_ranking(effective_type, run_id)
         return {"config_type": config_type, "run_id": run_id, "ranking": ranking, "count": len(ranking)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -420,7 +467,9 @@ async def get_ranking(config_type: str, run_id: str):
 async def get_scanning(config_type: str, run_id: str):
     """Get scanning data for a run"""
     try:
-        scanning = get_reader().get_scanning(config_type, run_id)
+        reader = get_reader(config_type)
+        effective_type = get_effective_config_type(config_type)
+        scanning = reader.get_scanning(effective_type, run_id)
         return {"config_type": config_type, "run_id": run_id, "scanning": scanning, "count": len(scanning)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -430,7 +479,9 @@ async def get_scanning(config_type: str, run_id: str):
 async def get_screening(config_type: str, run_id: str):
     """Get screening data for a run"""
     try:
-        screening = get_reader().get_screening(config_type, run_id)
+        reader = get_reader(config_type)
+        effective_type = get_effective_config_type(config_type)
+        screening = reader.get_screening(effective_type, run_id)
         return {"config_type": config_type, "run_id": run_id, "screening": screening, "count": len(screening)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -440,7 +491,9 @@ async def get_screening(config_type: str, run_id: str):
 async def get_trades(config_type: str, run_id: str):
     """Get all trades (final exits) for a run"""
     try:
-        analytics = get_reader().get_analytics(config_type, run_id)
+        reader = get_reader(config_type)
+        effective_type = get_effective_config_type(config_type)
+        analytics = reader.get_analytics(effective_type, run_id)
         trades = [a for a in analytics if a.get('is_final_exit')]
         return {"config_type": config_type, "run_id": run_id, "trades": trades, "count": len(trades)}
     except Exception as e:
@@ -451,7 +504,9 @@ async def get_trades(config_type: str, run_id: str):
 async def get_trade_details(config_type: str, run_id: str, trade_id: str):
     """Get complete details for a specific trade"""
     try:
-        details = get_reader().get_trade_details(config_type, run_id, trade_id)
+        reader = get_reader(config_type)
+        effective_type = get_effective_config_type(config_type)
+        details = reader.get_trade_details(effective_type, run_id, trade_id)
         if not details.get('decision') and not details.get('exits'):
             raise HTTPException(status_code=404, detail=f"Trade {trade_id} not found")
         return details
@@ -465,7 +520,9 @@ async def get_trade_details(config_type: str, run_id: str, trade_id: str):
 async def get_agent_log(config_type: str, run_id: str, lines: int = 100):
     """Get agent log content (last N lines)"""
     try:
-        content = get_reader().get_agent_log(config_type, run_id)
+        reader = get_reader(config_type)
+        effective_type = get_effective_config_type(config_type)
+        content = reader.get_agent_log(effective_type, run_id)
         if content is None:
             raise HTTPException(status_code=404, detail="agent.log not found")
 
@@ -490,7 +547,9 @@ async def get_agent_log(config_type: str, run_id: str, lines: int = 100):
 async def get_trade_log(config_type: str, run_id: str, lines: int = 100):
     """Get trade logs content (last N lines)"""
     try:
-        content = get_reader().get_trade_logs(config_type, run_id)
+        reader = get_reader(config_type)
+        effective_type = get_effective_config_type(config_type)
+        content = reader.get_trade_logs(effective_type, run_id)
         if content is None:
             raise HTTPException(status_code=404, detail="trade_logs.log not found")
 
@@ -515,7 +574,9 @@ async def get_trade_log(config_type: str, run_id: str, lines: int = 100):
 async def get_setup_analysis(config_type: str, run_id: str):
     """Get setup performance analysis"""
     try:
-        summary = get_reader().get_run_summary(config_type, run_id)
+        reader = get_reader(config_type)
+        effective_type = get_effective_config_type(config_type)
+        summary = reader.get_run_summary(effective_type, run_id)
         setup_data = summary.get('by_setup', {})
 
         result = []
@@ -541,7 +602,9 @@ async def get_setup_analysis(config_type: str, run_id: str):
 async def get_regime_analysis(config_type: str, run_id: str):
     """Get regime performance analysis"""
     try:
-        summary = get_reader().get_run_summary(config_type, run_id)
+        reader = get_reader(config_type)
+        effective_type = get_effective_config_type(config_type)
+        summary = reader.get_run_summary(effective_type, run_id)
         regime_data = summary.get('by_regime', {})
 
         result = []
@@ -669,8 +732,10 @@ async def websocket_live(websocket: WebSocket, config_type: str, run_id: str):
     key = f"{config_type}/{run_id}"
     await manager.connect(websocket, key)
     try:
+        reader = get_reader(config_type)
+        effective_type = get_effective_config_type(config_type)
         while True:
-            summary = get_reader().get_run_summary(config_type, run_id)
+            summary = reader.get_run_summary(effective_type, run_id)
 
             await websocket.send_json({
                 "type": "update",
