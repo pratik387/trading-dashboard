@@ -153,7 +153,7 @@ live_reader = None
 # New runs should have capital stored in performance.json
 CAPITAL_FALLBACK = {
     "live": 10000,      # Default fallback for live runs
-    "fixed": 1000,      # 1K fixed for paper trading
+    "fixed": 500000,    # 5L for paper trading
     "relative": None,   # % based, no fixed capital
     "1year": None,      # varies
 }
