@@ -154,8 +154,8 @@ live_reader = None
 CAPITAL_FALLBACK = {
     "live": 10000,      # Default fallback for live runs
     "fixed": 500000,    # 5L for paper trading
-    "relative": None,   # % based, no fixed capital
-    "1year": None,      # varies
+    "relative": 500000, # 5L for paper trading
+    "1year": 500000,    # 5L for paper trading
 }
 
 def get_reader(config_type: str = None):
