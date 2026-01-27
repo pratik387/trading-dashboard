@@ -126,7 +126,7 @@ export default function HistoricalPage() {
             <option value="fixed">Fixed (5L)</option>
             <option value="relative">Relative (1%)</option>
             <option value="1year">1 Year</option>
-            <option value="live">Live (10K)</option>
+            <option value="live">Live</option>
           </select>
           <input
             type="date"
