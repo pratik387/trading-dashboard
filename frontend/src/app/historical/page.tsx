@@ -126,7 +126,7 @@ export default function HistoricalPage() {
             <option value="fixed">Fixed (1K)</option>
             <option value="relative">Relative (1%)</option>
             <option value="1year">1 Year</option>
-            <option value="live">Live (10K)</option>
+            <option value="live">Live</option>
           </select>
           <input
             type="date"
@@ -221,24 +221,37 @@ function OverviewTab({ data }: { data: AggregateData }) {
     <div className="space-y-6">
       {/* Main Metrics */}
       <section>
-        <h2 className="text-lg font-semibold mb-3">Summary</h2>
+        <h2 className="text-lg font-semibold mb-3">
+          Summary
+          {data.capital && (
+            <span className="ml-2 text-sm font-normal text-gray-500">
+              (Capital: ₹{(data.capital / 1000).toFixed(0)}K)
+            </span>
+          )}
+        </h2>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
           <MetricCard
             label="Gross PnL"
             value={formatINR(data.gross_pnl)}
+            subValue={data.gross_return_pct != null ? `${data.gross_return_pct.toFixed(2)}%` : undefined}
             delta={data.gross_pnl >= 0 ? "up" : "down"}
             help="Total profit before fees"
           />
           <MetricCard
             label="Net PnL"
             value={formatINR(data.net_pnl)}
+            subValue={data.net_return_pct != null ? `${data.net_return_pct.toFixed(2)}%` : undefined}
             delta={data.net_pnl >= 0 ? "up" : "down"}
             help="Profit after fees"
           />
           <MetricCard label="Total Trades" value={data.total_trades} />
           <MetricCard label="Win Rate" value={`${data.win_rate.toFixed(1)}%`} />
           <MetricCard label="Trading Days" value={data.days} />
-          <MetricCard label="Avg PnL/Day" value={formatINR(data.avg_pnl_per_day)} />
+          <MetricCard
+            label="Avg PnL/Day"
+            value={formatINR(data.avg_pnl_per_day)}
+            subValue={data.avg_daily_return_pct != null ? `${data.avg_daily_return_pct.toFixed(2)}%` : undefined}
+          />
         </div>
       </section>
 

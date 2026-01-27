@@ -137,6 +137,8 @@ export interface DailyData {
   losers: number;
   win_rate: number;
   cumulative_pnl: number;
+  return_pct?: number;
+  cumulative_return_pct?: number;
 }
 
 export interface SetupStats {
@@ -160,10 +162,14 @@ export interface HistoricalTrade {
 
 export interface AggregateData {
   config_type: string;
+  capital?: number;
   days: number;
   gross_pnl: number;
   net_pnl: number;
   total_pnl: number;
+  gross_return_pct?: number;
+  net_return_pct?: number;
+  avg_daily_return_pct?: number;
   total_trades: number;
   winners: number;
   losers: number;

@@ -6,12 +6,13 @@ import { Info } from "lucide-react";
 interface MetricCardProps {
   label: string;
   value: string | number;
+  subValue?: string;
   delta?: "up" | "down";
   help?: string;
   className?: string;
 }
 
-export function MetricCard({ label, value, delta, help, className }: MetricCardProps) {
+export function MetricCard({ label, value, subValue, delta, help, className }: MetricCardProps) {
   return (
     <div className={cn("bg-white dark:bg-gray-800 rounded-lg p-4 shadow-sm border", className)}>
       <div className="flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400 mb-1">
@@ -27,6 +28,9 @@ export function MetricCard({ label, value, delta, help, className }: MetricCardP
       </div>
       <div className="flex items-center gap-2">
         <span className="text-xl font-semibold">{value}</span>
+        {subValue && (
+          <span className="text-sm text-gray-500 dark:text-gray-400">({subValue})</span>
+        )}
         {delta && (
           <span className={delta === "up" ? "text-profit" : "text-loss"}>
             {delta === "up" ? "↑" : "↓"}

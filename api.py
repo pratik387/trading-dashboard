@@ -145,14 +145,23 @@ app.add_middleware(
 
 # Initialize OCI readers
 # paper_reader for paper trading logs (fixed, relative, 1year)
-# live_reader for live trading logs (capital_10k)
+# live_reader for live trading logs
 paper_reader = None
 live_reader = None
+
+# Fallback capital for old runs without capital in performance.json
+# New runs should have capital stored in performance.json
+CAPITAL_FALLBACK = {
+    "live": 10000,      # Default fallback for live runs
+    "fixed": 1000,      # 1K fixed for paper trading
+    "relative": None,   # % based, no fixed capital
+    "1year": None,      # varies
+}
 
 def get_reader(config_type: str = None):
     """
     Get the appropriate OCI reader based on config type.
-    - 'live' uses live-trading-logs bucket with capital_10k folder
+    - 'live' uses live-trading-logs bucket
     - Others use paper-trading-logs bucket
     """
     global paper_reader, live_reader
@@ -170,12 +179,14 @@ def get_reader(config_type: str = None):
 def get_effective_config_type(config_type: str) -> str:
     """
     Map frontend config type to actual folder name in OCI bucket.
-    - 'live' maps to 'capital_10k' in live-trading-logs bucket
-    - Others remain unchanged
+    Currently 1:1 mapping, kept for future flexibility.
     """
-    if config_type == "live":
-        return "capital_10k"
     return config_type
+
+
+def get_capital(config_type: str) -> int | None:
+    """Get fallback capital for old runs without capital in performance.json"""
+    return CAPITAL_FALLBACK.get(config_type)
 
 
 # ============ Response Models ============
@@ -207,7 +218,7 @@ async def list_config_types():
     """List all config types (top-level folders like fixed, relative, 1year, live)"""
     try:
         config_types = get_reader().list_config_types()
-        # Add 'live' option (maps to capital_10k in live-trading-logs bucket)
+        # Add live option (reads from live-trading-logs bucket)
         if "live" not in config_types:
             config_types.append("live")
         return {"config_types": config_types}
@@ -264,19 +275,35 @@ async def get_aggregate_summary(config_type: str, date_from: str = None, date_to
         total_winners = 0
         total_losers = 0
         total_fees = 0
+        total_return_pct = 0  # Sum of per-run % returns
+        runs_with_capital = 0  # Count runs that have capital data
         all_trades = []
         by_setup = {}
         daily_data = []
+
+        # Fallback capital from config type (for old runs without capital in performance.json)
+        fallback_capital = get_capital(config_type)
 
         for run in runs:
             run_id = run['run_id']
             summary = reader.get_run_summary(effective_type, run_id)
 
-            total_pnl += summary.get('total_pnl', 0)
+            run_pnl = summary.get('total_pnl', 0)
+            total_pnl += run_pnl
             total_trades += summary.get('total_trades', 0)
             total_winners += summary.get('winners', 0)
             total_losers += summary.get('losers', 0)
             total_fees += summary.get('total_fees', 0)
+
+            # Get capital for this run (from performance.json, fallback to config map)
+            run_capital = summary.get('capital') or fallback_capital
+
+            # Calculate % return for this run
+            run_return_pct = None
+            if run_capital:
+                run_return_pct = run_pnl / run_capital * 100
+                total_return_pct += run_return_pct
+                runs_with_capital += 1
 
             # Collect trades
             all_trades.extend(summary.get('trades', []))
@@ -289,11 +316,13 @@ async def get_aggregate_summary(config_type: str, date_from: str = None, date_to
                 by_setup[setup]['count'] += data.get('count', 0)
                 by_setup[setup]['wins'] += data.get('wins', 0)
 
-            # Daily data
+            # Daily data (includes per-run capital and % return)
             daily_data.append({
                 'date': run.get('timestamp', 'Unknown'),
                 'run_id': run_id,
-                'pnl': summary.get('total_pnl', 0),
+                'pnl': run_pnl,
+                'capital': run_capital,
+                'return_pct': run_return_pct,
                 'trades': summary.get('total_trades', 0),
                 'winners': summary.get('winners', 0),
                 'losers': summary.get('losers', 0),
@@ -302,15 +331,6 @@ async def get_aggregate_summary(config_type: str, date_from: str = None, date_to
 
         # Sort daily data by date
         daily_data.sort(key=lambda x: x['date'])
-
-        # Calculate cumulative PnL
-        cumulative = 0
-        for d in daily_data:
-            cumulative += d['pnl']
-            d['cumulative_pnl'] = cumulative
-
-        gross_pnl = total_pnl
-        net_pnl = total_pnl - total_fees
 
         # Format setup stats
         setup_stats = []
@@ -331,12 +351,37 @@ async def get_aggregate_summary(config_type: str, date_from: str = None, date_to
         actual_date_from = daily_data[0]['date'][:10] if daily_data else None
         actual_date_to = daily_data[-1]['date'][:10] if daily_data else None
 
+        # Calculate cumulative PnL and % returns
+        cumulative_pnl = 0
+        cumulative_return_pct = 0
+        for d in daily_data:
+            cumulative_pnl += d['pnl']
+            d['cumulative_pnl'] = cumulative_pnl
+            if d.get('return_pct') is not None:
+                cumulative_return_pct += d['return_pct']
+                d['cumulative_return_pct'] = cumulative_return_pct
+
+        gross_pnl = total_pnl
+        net_pnl = total_pnl - total_fees
+
+        # % returns are sum of per-run returns (not from fixed capital)
+        gross_return_pct = total_return_pct if runs_with_capital > 0 else None
+        # Approximate net return by subtracting fees proportionally
+        net_return_pct = None
+        if gross_return_pct is not None and gross_pnl != 0:
+            net_return_pct = gross_return_pct * (net_pnl / gross_pnl) if gross_pnl else gross_return_pct
+        avg_daily_return_pct = (total_return_pct / runs_with_capital) if runs_with_capital > 0 else None
+
         return {
             "config_type": config_type,
+            "capital": None,  # Varies per run, see daily_data for per-run capital
             "days": len(runs),
             "gross_pnl": gross_pnl,
             "net_pnl": net_pnl,
             "total_pnl": total_pnl,
+            "gross_return_pct": gross_return_pct,
+            "net_return_pct": net_return_pct,
+            "avg_daily_return_pct": avg_daily_return_pct,
             "total_trades": total_trades,
             "winners": total_winners,
             "losers": total_losers,

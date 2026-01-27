@@ -561,9 +561,9 @@ export default function HomePage() {
 
       {selectedInstance && status && (
         <>
-          {/* PnL Summary */}
+          {/* Day's Performance - PnL + Capital */}
           <section>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
               <MetricCard
                 label="Total PnL"
                 value={formatINR(totalPnl)}
@@ -578,6 +578,17 @@ export default function HomePage() {
                 label="Unrealized"
                 value={formatINR(unrealizedPnl)}
                 help="Paper P&L from open positions"
+              />
+              <MetricCard
+                label="Capital"
+                value={formatINR(status?.capital?.total || 0)}
+                help="Total capital allocated to engine"
+              />
+              <MetricCard
+                label="Return %"
+                value={`${status?.capital?.total ? ((totalPnl / status.capital.total) * 100).toFixed(2) : 0}%`}
+                delta={totalPnl >= 0 ? "up" : "down"}
+                help="Day's return on capital"
               />
               <MetricCard label="Open Positions" value={positions.length} />
             </div>

@@ -262,6 +262,7 @@ class OCIDataReader:
                 'run_id': run_id,
                 'config_type': config_type,
                 'session_id': perf.get('session_id'),
+                'capital': perf.get('capital'),  # Per-run capital for % return calc
                 'total_pnl': summary.get('total_pnl', 0),
                 'total_trades': summary.get('completed_trades', 0),
                 'winners': summary.get('wins', 0),
@@ -283,6 +284,7 @@ class OCIDataReader:
             return {
                 'run_id': run_id,
                 'config_type': config_type,
+                'capital': None,
                 'total_pnl': 0,
                 'total_trades': 0,
                 'winners': 0,
@@ -321,6 +323,7 @@ class OCIDataReader:
         return {
             'run_id': run_id,
             'config_type': config_type,
+            'capital': None,  # Not available in analytics fallback
             'total_pnl': total_pnl,
             'total_trades': len(trades),
             'winners': len(winners),
