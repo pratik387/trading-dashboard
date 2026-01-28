@@ -227,16 +227,18 @@ export default function HomePage() {
     }
   }, [selectedInstance]);
 
-  // HTTP polling fallback - only used when WebSocket is disabled or not connected
+  // HTTP polling - fast (5s) when no WebSocket, slow (30s) when WebSocket connected
   useEffect(() => {
-    // Skip polling if using WebSocket and it's connected
-    if (useWebSocket && wsConnected) return;
     if (!autoRefresh || !selectedInstance) return;
+
+    // WebSocket provides real-time updates for positions/trades
+    // But we still need periodic full refresh for summary stats, instance list, etc.
+    const pollInterval = (useWebSocket && wsConnected) ? 30000 : 5000;
 
     const interval = setInterval(() => {
       loadInstances();
       loadInstanceDetails();
-    }, 5000);
+    }, pollInterval);
     return () => clearInterval(interval);
   }, [autoRefresh, selectedInstance, useWebSocket, wsConnected]);
 

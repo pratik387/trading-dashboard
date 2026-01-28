@@ -199,6 +199,9 @@ class RunInfo(BaseModel):
     total_trades: int
     win_rate: float
 
+class UpdateRunCapitalRequest(BaseModel):
+    capital: int
+
 
 # ============ REST Endpoints ============
 
@@ -420,6 +423,25 @@ async def get_run(config_type: str, run_id: str):
         }
     except HTTPException:
         raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.patch("/api/runs/{config_type}/{run_id}/capital")
+async def update_run_capital(config_type: str, run_id: str, request: UpdateRunCapitalRequest):
+    """Update capital for a specific run's performance.json"""
+    try:
+        reader = get_reader(config_type)
+        effective_type = get_effective_config_type(config_type)
+        reader.update_performance(effective_type, run_id, {"capital": request.capital})
+        return {
+            "run_id": run_id,
+            "config_type": config_type,
+            "capital": request.capital,
+            "message": "Capital updated successfully"
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

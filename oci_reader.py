@@ -231,6 +231,40 @@ class OCIDataReader:
         """Get performance summary"""
         return self._get_performance(config_type, run_id)
 
+    def update_performance(self, config_type: str, run_id: str, updates: Dict) -> Dict:
+        """
+        Update fields in performance.json for a specific run.
+
+        Args:
+            config_type: e.g., 'live', 'fixed'
+            run_id: e.g., 'live_20260127_074113'
+            updates: Dict of fields to update, e.g., {'capital': 50000}
+
+        Returns:
+            Updated performance dict
+        """
+        object_name = f"{config_type}/{run_id}/performance.json"
+
+        # Get current performance
+        perf = self._get_performance(config_type, run_id)
+        if not perf:
+            raise ValueError(f"performance.json not found for {config_type}/{run_id}")
+
+        # Apply updates
+        perf.update(updates)
+
+        # Write back
+        content = json.dumps(perf, indent=2).encode('utf-8')
+        self.os_client.put_object(
+            namespace_name=self.namespace,
+            bucket_name=self.bucket_name,
+            object_name=object_name,
+            put_object_body=content,
+            content_type='application/json'
+        )
+
+        return perf
+
     def get_run_summary(self, config_type: str, run_id: str) -> Dict:
         """
         Get summary metrics for a run.
