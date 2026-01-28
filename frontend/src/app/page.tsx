@@ -227,20 +227,16 @@ export default function HomePage() {
     }
   }, [selectedInstance]);
 
-  // HTTP polling - fast (5s) when no WebSocket, slow (30s) when WebSocket connected
+  // HTTP polling - always refresh every 5 seconds when auto-refresh is on
   useEffect(() => {
     if (!autoRefresh || !selectedInstance) return;
-
-    // WebSocket provides real-time updates for positions/trades
-    // But we still need periodic full refresh for summary stats, instance list, etc.
-    const pollInterval = (useWebSocket && wsConnected) ? 30000 : 5000;
 
     const interval = setInterval(() => {
       loadInstances();
       loadInstanceDetails();
-    }, pollInterval);
+    }, 5000);
     return () => clearInterval(interval);
-  }, [autoRefresh, selectedInstance, useWebSocket, wsConnected]);
+  }, [autoRefresh, selectedInstance]);
 
   const getStatusColor = (status: string) => {
     switch (status) {
