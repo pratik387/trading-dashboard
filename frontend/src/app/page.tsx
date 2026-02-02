@@ -668,6 +668,8 @@ export default function HomePage() {
                       const posBooked = pos.booked_pnl || 0;
                       const posTotal = posUnrealized + posBooked;
                       const hasT1 = pos.t1_done || false;
+                      const hasEodPartial = pos.eod_partial_done || false;
+                      const hasManualPartial = pos.manual_partial_done || false;
 
                       return (
                         <tr
@@ -679,6 +681,16 @@ export default function HomePage() {
                             {hasT1 && (
                               <span className="ml-1 px-1.5 py-0.5 text-xs bg-blue-100 text-blue-700 rounded">
                                 T1
+                              </span>
+                            )}
+                            {hasEodPartial && (
+                              <span className="ml-1 px-1.5 py-0.5 text-xs bg-amber-100 text-amber-700 rounded">
+                                EOD
+                              </span>
+                            )}
+                            {hasManualPartial && (
+                              <span className="ml-1 px-1.5 py-0.5 text-xs bg-purple-100 text-purple-700 rounded">
+                                P
                               </span>
                             )}
                           </td>
