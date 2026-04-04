@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { Wifi, WifiOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ScannerSnapshot } from "@/lib/scanner-api";
@@ -33,6 +34,13 @@ function formatTimeSince(date: Date | null): string {
 }
 
 export function MarketPulse({ snapshot, connected, lastUpdate }: MarketPulseProps) {
+  // Force re-render every second to keep "Updated Xs ago" fresh
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
+
   const regime = snapshot?.regime?.label || "unknown";
   const index = snapshot?.index;
   const stats = snapshot?.stats;
