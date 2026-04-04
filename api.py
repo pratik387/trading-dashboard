@@ -900,6 +900,18 @@ async def get_instance_closed_trades(instance: str):
     return await proxy_to_engine(instance, "/closed")
 
 
+@app.get("/api/instances/{instance}/scanner")
+async def get_instance_scanner(instance: str):
+    """Proxy scanner snapshot from engine instance."""
+    return await proxy_to_engine(instance, "/scanner/snapshot")
+
+
+@app.get("/api/instances/{instance}/scanner/stats")
+async def get_instance_scanner_stats(instance: str):
+    """Proxy scanner backtest stats from engine instance."""
+    return await proxy_to_engine(instance, "/scanner/stats")
+
+
 # ============ Admin Endpoints (Token Protected) ============
 # These proxy to engine admin endpoints with token forwarding
 # Requires X-Admin-Token header for authentication
