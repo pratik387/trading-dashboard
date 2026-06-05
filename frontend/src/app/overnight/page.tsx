@@ -1,0 +1,612 @@
+"use client";
+
+import { useState, useEffect, useCallback } from "react";
+import { MetricCard } from "@/components/MetricCard";
+import { cn, formatINR, formatTime } from "@/lib/utils";
+import {
+  OvernightPool,
+  OvernightLedger,
+  OvernightSummary,
+  OvernightCandidates,
+  OvernightCronHealth,
+  fetchOvernightPool,
+  fetchOvernightLedger,
+  fetchOvernightSummary,
+  fetchOvernightCandidates,
+  fetchOvernightCronHealth,
+} from "@/lib/api";
+import {
+  Moon,
+  RefreshCw,
+  AlertTriangle,
+  CheckCircle2,
+  Clock,
+  TrendingUp,
+  TrendingDown,
+} from "lucide-react";
+
+const REFRESH_INTERVAL_MS = 30000; // 30s — cron-driven setup, no need for tick speed
+
+export default function OvernightPage() {
+  const [pool, setPool] = useState<OvernightPool | null>(null);
+  const [ledger, setLedger] = useState<OvernightLedger | null>(null);
+  const [summary, setSummary] = useState<OvernightSummary | null>(null);
+  const [candidates, setCandidates] = useState<OvernightCandidates | null>(null);
+  const [cron, setCron] = useState<OvernightCronHealth | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [lastLoaded, setLastLoaded] = useState<string>("");
+
+  const loadAll = useCallback(async () => {
+    try {
+      const [p, l, s, c, ch] = await Promise.all([
+        fetchOvernightPool(),
+        fetchOvernightLedger(),
+        fetchOvernightSummary(),
+        fetchOvernightCandidates(),
+        fetchOvernightCronHealth(),
+      ]);
+      setPool(p);
+      setLedger(l);
+      setSummary(s);
+      setCandidates(c);
+      setCron(ch);
+      setError(null);
+      setLastLoaded(new Date().toLocaleTimeString());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadAll();
+  }, [loadAll]);
+
+  useEffect(() => {
+    if (!autoRefresh) return;
+    const id = setInterval(loadAll, REFRESH_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [autoRefresh, loadAll]);
+
+  if (loading && !pool) {
+    return (
+      <div className="flex items-center justify-center h-64 text-gray-400">
+        Loading overnight data...
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="rounded-lg border border-red-200 bg-red-50 dark:bg-red-900/20 dark:border-red-900 p-4 text-sm text-red-700 dark:text-red-300">
+        <div className="font-medium mb-1">Failed to load overnight data</div>
+        <div>{error}</div>
+        <button
+          onClick={loadAll}
+          className="mt-2 px-3 py-1 rounded bg-red-100 hover:bg-red-200 dark:bg-red-800 dark:hover:bg-red-700 text-xs"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold flex items-center gap-2">
+            <Moon className="w-6 h-6" />
+            Overnight Setup
+          </h1>
+          <p className="text-sm text-gray-500 mt-1">
+            {summary?.setup_name || "close_dn_overnight_long"} — cron-driven (15:27 entry, 09:30 verify-exit)
+            {lastLoaded && <span className="ml-2">· Last loaded {lastLoaded}</span>}
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <label className="flex items-center gap-1.5 text-sm cursor-pointer">
+            <input
+              type="checkbox"
+              checked={autoRefresh}
+              onChange={(e) => setAutoRefresh(e.target.checked)}
+              className="rounded"
+            />
+            Auto-refresh (30s)
+          </label>
+          <button
+            onClick={loadAll}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border hover:bg-gray-50 dark:hover:bg-gray-800"
+          >
+            <RefreshCw className="w-4 h-4" />
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      {/* Cron health banner */}
+      {cron && <CronHealthBanner cron={cron} />}
+
+      {/* Stale slot warning */}
+      {pool && pool.stale_slots.length > 0 && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-900 p-3 flex items-start gap-2">
+          <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 mt-0.5" />
+          <div className="text-sm">
+            <div className="font-medium text-amber-800 dark:text-amber-200">
+              {pool.stale_slots.length} stale slot(s) — orphan pending cleanup
+            </div>
+            <div className="text-amber-700 dark:text-amber-300 mt-0.5">
+              {pool.stale_slots
+                .map((s) => `${s.symbol} (exit_d=${s.expected_exit_date})`)
+                .join(", ")}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Summary metrics */}
+      {summary && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <MetricCard
+            label="Cumulative PnL"
+            value={formatINR(summary.cumulative_pnl)}
+            delta={summary.cumulative_pnl >= 0 ? "up" : "down"}
+            help="Sum of all settled-trade net PnLs from the decay tripwire ledger"
+          />
+          <MetricCard
+            label="Trades"
+            value={String(summary.total_trades)}
+            subValue={`${summary.wins}W / ${summary.losses}L`}
+          />
+          <MetricCard
+            label="Win Rate"
+            value={`${summary.win_rate_pct.toFixed(1)}%`}
+            help="Backtest 6mo was 56% on n=197 — small samples vary wildly"
+          />
+          <MetricCard
+            label="Open Positions"
+            value={String(summary.current_open_positions)}
+            subValue={`${summary.max_slots - summary.current_open_positions} free of ${summary.max_slots}`}
+          />
+        </div>
+      )}
+
+      {/* Panel 1: Slot pool */}
+      {pool && <SlotPoolPanel pool={pool} />}
+
+      {/* Panel 2: Trade ledger */}
+      {ledger && summary && <LedgerPanel ledger={ledger} dailyBreakdown={summary.daily_breakdown} />}
+
+      {/* Panel 3: Today's candidates */}
+      {candidates && <CandidatesPanel candidates={candidates} pool={pool} />}
+    </div>
+  );
+}
+
+// ─── Cron health banner ────────────────────────────────────────────────
+
+function CronHealthBanner({ cron }: { cron: OvernightCronHealth }) {
+  const verifyOk = cron.verify_exit.exists;
+  const entryOk = cron.entry.exists;
+  const allOk = verifyOk && entryOk;
+  // entry cron runs at 15:27 — if it's earlier than that, expecting it to be missing
+  const nowIst = new Date();
+  const istHr = (nowIst.getUTCHours() + 5) % 24; // rough IST hour
+  const istMin = (nowIst.getUTCMinutes() + 30) % 60;
+  const entryExpectedYet = istHr > 15 || (istHr === 15 && istMin >= 30);
+  const issueWithEntry = entryExpectedYet && !entryOk;
+  const issueWithVerify = istHr >= 10 && !verifyOk;
+  const hasIssue = issueWithEntry || issueWithVerify;
+
+  return (
+    <div
+      className={cn(
+        "rounded-lg border p-3 text-sm flex items-center gap-3",
+        hasIssue
+          ? "border-amber-200 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-900"
+          : allOk
+            ? "border-green-200 bg-green-50 dark:bg-green-900/20 dark:border-green-900"
+            : "border-gray-200 bg-gray-50 dark:bg-gray-900 dark:border-gray-800"
+      )}
+    >
+      <Clock className="w-5 h-5 flex-shrink-0" />
+      <div className="flex-1 grid grid-cols-2 gap-4">
+        <CronCell
+          label="09:30 Verify-exit"
+          exists={verifyOk}
+          mtime={cron.verify_exit.mtime_iso}
+          missing={issueWithVerify}
+        />
+        <CronCell
+          label="15:27 Entry"
+          exists={entryOk}
+          mtime={cron.entry.mtime_iso}
+          missing={issueWithEntry}
+          notYetExpected={!entryExpectedYet}
+        />
+      </div>
+    </div>
+  );
+}
+
+function CronCell({
+  label,
+  exists,
+  mtime,
+  missing,
+  notYetExpected,
+}: {
+  label: string;
+  exists: boolean;
+  mtime: string | null;
+  missing?: boolean;
+  notYetExpected?: boolean;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      {exists ? (
+        <CheckCircle2 className="w-4 h-4 text-green-600 dark:text-green-400" />
+      ) : missing ? (
+        <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+      ) : (
+        <Clock className="w-4 h-4 text-gray-400" />
+      )}
+      <div className="text-xs">
+        <div className="font-medium">{label}</div>
+        <div className="text-gray-500 dark:text-gray-400">
+          {exists && mtime
+            ? `Last run: ${formatTime(mtime)}`
+            : notYetExpected
+              ? "Not yet expected today"
+              : "No log today"}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Panel 1: Slot pool ────────────────────────────────────────────────
+
+function SlotPoolPanel({ pool }: { pool: OvernightPool }) {
+  return (
+    <div className="rounded-lg border bg-white dark:bg-gray-900 p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <h2 className="font-semibold flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+          Slot Pool
+        </h2>
+        <span className="text-xs text-gray-500">
+          {pool.new_today_count} new today / {pool.max_slots} cap
+        </span>
+      </div>
+
+      {pool.active_slots.length === 0 ? (
+        <div className="text-sm text-gray-500 py-6 text-center">
+          No active positions
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs text-gray-500 border-b">
+                <th className="py-2 pr-3">Slot</th>
+                <th className="py-2 pr-3">Symbol</th>
+                <th className="py-2 pr-3">Status</th>
+                <th className="py-2 pr-3 text-right">Buy</th>
+                <th className="py-2 pr-3 text-right">Sell</th>
+                <th className="py-2 pr-3 text-right">Qty</th>
+                <th className="py-2 pr-3">Product</th>
+                <th className="py-2 pr-3 text-right">PnL</th>
+                <th className="py-2 pr-3">Exit Date</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pool.active_slots.map((s) => (
+                <tr key={s.slot_id} className="border-b last:border-0 hover:bg-gray-50 dark:hover:bg-gray-800">
+                  <td className="py-2 pr-3 text-gray-500">{s.slot_id}</td>
+                  <td className="py-2 pr-3 font-medium">{s.symbol}</td>
+                  <td className="py-2 pr-3">
+                    <span
+                      className={cn(
+                        "text-xs px-2 py-0.5 rounded-full",
+                        s.status === "t0_open"
+                          ? "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300"
+                          : "bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300"
+                      )}
+                    >
+                      {s.status}
+                    </span>
+                  </td>
+                  <td className="py-2 pr-3 text-right tabular-nums">
+                    {s.buy_fill_price != null ? `₹${s.buy_fill_price.toFixed(2)}` : "—"}
+                  </td>
+                  <td className="py-2 pr-3 text-right tabular-nums">
+                    {s.sell_fill_price != null ? `₹${s.sell_fill_price.toFixed(2)}` : "—"}
+                  </td>
+                  <td className="py-2 pr-3 text-right tabular-nums text-gray-600">
+                    {s.qty?.toLocaleString() ?? "—"}
+                  </td>
+                  <td className="py-2 pr-3 text-xs text-gray-600 dark:text-gray-400">{s.product ?? "—"}</td>
+                  <td className={cn(
+                    "py-2 pr-3 text-right tabular-nums font-medium",
+                    s.realized_pnl_inr == null
+                      ? "text-gray-400"
+                      : s.realized_pnl_inr >= 0
+                        ? "text-green-600 dark:text-green-400"
+                        : "text-red-600 dark:text-red-400"
+                  )}>
+                    {s.realized_pnl_inr != null ? formatINR(s.realized_pnl_inr) : "pending"}
+                  </td>
+                  <td className="py-2 pr-3 text-xs text-gray-500">{s.expected_exit_date}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Panel 2: Trade ledger ─────────────────────────────────────────────
+
+function LedgerPanel({
+  ledger,
+  dailyBreakdown,
+}: {
+  ledger: OvernightLedger;
+  dailyBreakdown: OvernightSummary["daily_breakdown"];
+}) {
+  // Build cumulative-PnL trajectory
+  const cumTrades = ledger.trades.reduce<{ idx: number; cum: number; pnl: number }[]>((acc, t, i) => {
+    const prev = acc[acc.length - 1]?.cum ?? 0;
+    acc.push({ idx: i + 1, cum: prev + t.net_pnl_inr, pnl: t.net_pnl_inr });
+    return acc;
+  }, []);
+
+  return (
+    <div className="rounded-lg border bg-white dark:bg-gray-900 p-4 space-y-4">
+      <h2 className="font-semibold flex items-center gap-2">
+        <span className="w-2 h-2 rounded-full bg-purple-500"></span>
+        Trade Ledger
+        <span className="text-xs font-normal text-gray-500">
+          ({ledger.trades.length} settled)
+        </span>
+      </h2>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Cumulative chart */}
+        <div className="border rounded-lg p-3">
+          <div className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">
+            Cumulative PnL (running sum vs trade #)
+          </div>
+          <CumulativeChart data={cumTrades} />
+        </div>
+
+        {/* Daily breakdown */}
+        <div className="border rounded-lg p-3">
+          <div className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">
+            Per-day breakdown
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs text-gray-500 border-b">
+                  <th className="py-1 pr-2">Date</th>
+                  <th className="py-1 pr-2 text-right">Fires</th>
+                  <th className="py-1 pr-2 text-right">WR</th>
+                  <th className="py-1 pr-2 text-right">Net PnL</th>
+                </tr>
+              </thead>
+              <tbody>
+                {dailyBreakdown.map((d) => (
+                  <tr key={d.date} className="border-b last:border-0">
+                    <td className="py-1 pr-2 text-xs">{d.date}</td>
+                    <td className="py-1 pr-2 text-right tabular-nums">{d.fires}</td>
+                    <td className="py-1 pr-2 text-right tabular-nums text-xs">{d.wr_pct.toFixed(0)}%</td>
+                    <td
+                      className={cn(
+                        "py-1 pr-2 text-right tabular-nums font-medium",
+                        d.net_pnl >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
+                      )}
+                    >
+                      {formatINR(d.net_pnl)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      {/* Recent trades */}
+      <details className="text-sm">
+        <summary className="cursor-pointer text-xs font-medium text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100">
+          Recent 20 trades (raw ledger)
+        </summary>
+        <div className="overflow-x-auto mt-2">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs text-gray-500 border-b">
+                <th className="py-1 pr-2">#</th>
+                <th className="py-1 pr-2">Timestamp</th>
+                <th className="py-1 pr-2 text-right">Net PnL</th>
+              </tr>
+            </thead>
+            <tbody>
+              {ledger.trades.slice(-20).reverse().map((t, i) => (
+                <tr key={i} className="border-b last:border-0">
+                  <td className="py-1 pr-2 text-gray-500">{ledger.trades.length - i}</td>
+                  <td className="py-1 pr-2 text-xs text-gray-600 dark:text-gray-400">{t.ts_iso.replace("T", " ").slice(0, 19)}</td>
+                  <td
+                    className={cn(
+                      "py-1 pr-2 text-right tabular-nums font-medium",
+                      t.net_pnl_inr >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
+                    )}
+                  >
+                    {formatINR(t.net_pnl_inr)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </details>
+    </div>
+  );
+}
+
+// Minimal SVG cumulative line chart — self-contained, no chart library
+function CumulativeChart({ data }: { data: { idx: number; cum: number; pnl: number }[] }) {
+  if (data.length === 0) {
+    return <div className="h-32 flex items-center justify-center text-xs text-gray-400">No trades yet</div>;
+  }
+  const width = 400;
+  const height = 140;
+  const margin = { top: 8, right: 8, bottom: 20, left: 50 };
+  const innerW = width - margin.left - margin.right;
+  const innerH = height - margin.top - margin.bottom;
+
+  const ys = data.map((d) => d.cum);
+  const minY = Math.min(0, ...ys);
+  const maxY = Math.max(0, ...ys);
+  const padY = (maxY - minY) * 0.1 || 1000;
+  const yMin = minY - padY;
+  const yMax = maxY + padY;
+
+  const xScale = (i: number) => margin.left + (i / Math.max(1, data.length - 1)) * innerW;
+  const yScale = (v: number) => margin.top + innerH - ((v - yMin) / (yMax - yMin)) * innerH;
+  const zeroY = yScale(0);
+
+  const path = data.map((d, i) => `${i === 0 ? "M" : "L"} ${xScale(i)} ${yScale(d.cum)}`).join(" ");
+
+  const finalCum = data[data.length - 1].cum;
+  const isPositive = finalCum >= 0;
+
+  return (
+    <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`}>
+      {/* Zero line */}
+      <line
+        x1={margin.left}
+        x2={width - margin.right}
+        y1={zeroY}
+        y2={zeroY}
+        stroke="#9ca3af"
+        strokeDasharray="3 3"
+      />
+      <text x={margin.left - 6} y={zeroY} textAnchor="end" dominantBaseline="middle" fontSize={10} fill="#6b7280">
+        ₹0
+      </text>
+      <text x={margin.left - 6} y={yScale(yMax)} textAnchor="end" dominantBaseline="middle" fontSize={10} fill="#6b7280">
+        ₹{(yMax / 1000).toFixed(0)}K
+      </text>
+      <text x={margin.left - 6} y={yScale(yMin)} textAnchor="end" dominantBaseline="middle" fontSize={10} fill="#6b7280">
+        ₹{(yMin / 1000).toFixed(0)}K
+      </text>
+
+      {/* Line */}
+      <path d={path} fill="none" stroke={isPositive ? "#16a34a" : "#dc2626"} strokeWidth={2} />
+
+      {/* Dots */}
+      {data.map((d, i) => (
+        <circle key={i} cx={xScale(i)} cy={yScale(d.cum)} r={2.5} fill={d.pnl >= 0 ? "#16a34a" : "#dc2626"}>
+          <title>
+            Trade #{d.idx}: {formatINR(d.pnl)} (cum: {formatINR(d.cum)})
+          </title>
+        </circle>
+      ))}
+
+      {/* X-axis label */}
+      <text x={width / 2} y={height - 4} textAnchor="middle" fontSize={10} fill="#6b7280">
+        Trade #
+      </text>
+    </svg>
+  );
+}
+
+// ─── Panel 3: Candidates ───────────────────────────────────────────────
+
+function CandidatesPanel({
+  candidates,
+  pool,
+}: {
+  candidates: OvernightCandidates;
+  pool: OvernightPool | null;
+}) {
+  // Symbols already in pool (active or just-settled) — for "already fired" badging
+  const firedSymbols = new Set(pool?.active_slots.map((s) => s.symbol).filter(Boolean));
+
+  const top20 = candidates.candidates.slice(0, 20);
+
+  return (
+    <div className="rounded-lg border bg-white dark:bg-gray-900 p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <h2 className="font-semibold flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+          Today's Candidates
+          <span className="text-xs font-normal text-gray-500">
+            ({candidates.n_candidates} total, showing top 20 by prior_day_return_pct)
+          </span>
+        </h2>
+        <span className="text-xs text-gray-500">
+          session: {candidates.session_date} · cell ≥ {candidates.cell_min_prior_ret_pct}%
+        </span>
+      </div>
+
+      {candidates.n_candidates === 0 ? (
+        <div className="text-sm text-gray-500 py-6 text-center">
+          No candidates today — verify-exit cron may not have run yet
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs text-gray-500 border-b">
+                <th className="py-2 pr-3">#</th>
+                <th className="py-2 pr-3">Symbol</th>
+                <th className="py-2 pr-3 text-right">Prior Close</th>
+                <th className="py-2 pr-3 text-right">Day-2 Close</th>
+                <th className="py-2 pr-3 text-right">Prior Day Return</th>
+                <th className="py-2 pr-3">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {top20.map((c, i) => {
+                const fired = firedSymbols.has(c.symbol);
+                return (
+                  <tr key={c.symbol} className="border-b last:border-0 hover:bg-gray-50 dark:hover:bg-gray-800">
+                    <td className="py-2 pr-3 text-xs text-gray-500">{i + 1}</td>
+                    <td className="py-2 pr-3 font-medium">{c.symbol}</td>
+                    <td className="py-2 pr-3 text-right tabular-nums">₹{c.prior_close.toFixed(2)}</td>
+                    <td className="py-2 pr-3 text-right tabular-nums text-gray-500">₹{c.prev_prior_close.toFixed(2)}</td>
+                    <td className="py-2 pr-3 text-right tabular-nums font-medium text-green-600 dark:text-green-400">
+                      <TrendingUp className="inline w-3 h-3 mr-1" />
+                      +{c.prior_day_return_pct.toFixed(2)}%
+                    </td>
+                    <td className="py-2 pr-3">
+                      {fired ? (
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300">
+                          fired
+                        </span>
+                      ) : (
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400">
+                          pending
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}

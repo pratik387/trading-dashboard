@@ -4,11 +4,12 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { useAdmin } from "@/lib/AdminContext";
-import { Server, History, Key, Activity } from "lucide-react";
+import { Server, History, Key, Activity, Moon } from "lucide-react";
 
 const navItems = [
   { href: "/", label: "Instances", icon: Server },
   { href: "/scanner", label: "Scanner", icon: Activity },
+  { href: "/overnight", label: "Overnight", icon: Moon },
   { href: "/historical", label: "Historical", icon: History },
 ];
 
