@@ -7,18 +7,15 @@ import {
   OvernightPool,
   OvernightLedger,
   OvernightSummary,
-  OvernightCandidates,
   OvernightCronHealth,
   fetchOvernightPool,
   fetchOvernightLedger,
   fetchOvernightSummary,
-  fetchOvernightCandidates,
   fetchOvernightCronHealth,
   fetchOvernightHistoryDates,
   fetchOvernightHistoryPool,
   fetchOvernightHistoryLedger,
   fetchOvernightHistorySummary,
-  fetchOvernightHistoryCandidates,
 } from "@/lib/api";
 import {
   Moon,
@@ -26,7 +23,6 @@ import {
   AlertTriangle,
   CheckCircle2,
   Clock,
-  TrendingUp,
   Archive,
   Radio,
 } from "lucide-react";
@@ -38,7 +34,6 @@ export default function OvernightPage() {
   const [pool, setPool] = useState<OvernightPool | null>(null);
   const [ledger, setLedger] = useState<OvernightLedger | null>(null);
   const [summary, setSummary] = useState<OvernightSummary | null>(null);
-  const [candidates, setCandidates] = useState<OvernightCandidates | null>(null);
   const [cron, setCron] = useState<OvernightCronHealth | null>(null);
   const [archivedDates, setArchivedDates] = useState<string[]>([]);
   const [selectedDate, setSelectedDate] = useState<string>(LIVE_MODE);
@@ -52,29 +47,25 @@ export default function OvernightPage() {
   const loadAll = useCallback(async () => {
     try {
       if (isLive) {
-        const [p, l, s, c, ch] = await Promise.all([
+        const [p, l, s, ch] = await Promise.all([
           fetchOvernightPool(),
           fetchOvernightLedger(),
           fetchOvernightSummary(),
-          fetchOvernightCandidates(),
           fetchOvernightCronHealth(),
         ]);
         setPool(p);
         setLedger(l);
         setSummary(s);
-        setCandidates(c);
         setCron(ch);
       } else {
-        const [p, l, s, c] = await Promise.all([
+        const [p, l, s] = await Promise.all([
           fetchOvernightHistoryPool(selectedDate),
           fetchOvernightHistoryLedger(selectedDate),
           fetchOvernightHistorySummary(selectedDate),
-          fetchOvernightHistoryCandidates(selectedDate),
         ]);
         setPool(p);
         setLedger(l);
         setSummary(s);
-        setCandidates(c);
         setCron(null); // cron-health isn't archived; only meaningful live
       }
       setError(null);
@@ -246,15 +237,6 @@ export default function OvernightPage() {
 
       {/* Panel 2: Trade ledger */}
       {ledger && summary && <LedgerPanel ledger={ledger} dailyBreakdown={summary.daily_breakdown} />}
-
-      {/* Panel 3: Today's candidates */}
-      {candidates && (
-        <CandidatesPanel
-          candidates={candidates}
-          pool={pool}
-          entryCronRan={isLive ? !!cron?.entry.exists : true}
-        />
-      )}
     </div>
   );
 }
@@ -669,95 +651,3 @@ function CumulativeChart({ data }: { data: { idx: number; cum: number; pnl: numb
   );
 }
 
-// ─── Panel 3: Candidates ───────────────────────────────────────────────
-
-function CandidatesPanel({
-  candidates,
-  pool,
-  entryCronRan,
-}: {
-  candidates: OvernightCandidates;
-  pool: OvernightPool | null;
-  entryCronRan: boolean;
-}) {
-  // Symbols already in pool (active or just-settled) — for "already fired" badging
-  const firedSymbols = new Set(pool?.active_slots.map((s) => s.symbol).filter(Boolean));
-
-  const top20 = candidates.candidates.slice(0, 20);
-
-  return (
-    <div className="rounded-lg border bg-white dark:bg-gray-900 p-4 space-y-3">
-      <div className="flex items-center justify-between">
-        <h2 className="font-semibold flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-amber-500"></span>
-          Today's Candidates
-          <span className="text-xs font-normal text-gray-500">
-            ({candidates.n_candidates} total, showing top 20 by prior_day_return_pct)
-          </span>
-        </h2>
-        <span className="text-xs text-gray-500">
-          session: {candidates.session_date} · cell ≥ {candidates.cell_min_prior_ret_pct}%
-        </span>
-      </div>
-
-      {candidates.n_candidates === 0 ? (
-        <div className="text-sm text-gray-500 py-6 text-center">
-          No candidates today — verify-exit cron may not have run yet
-        </div>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs text-gray-500 border-b">
-                <th className="py-2 pr-3">#</th>
-                <th className="py-2 pr-3">Symbol</th>
-                <th className="py-2 pr-3 text-right">Prior Close</th>
-                <th className="py-2 pr-3 text-right">Day-2 Close</th>
-                <th className="py-2 pr-3 text-right">Prior Day Return</th>
-                <th className="py-2 pr-3">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {top20.map((c, i) => {
-                const fired = firedSymbols.has(c.symbol);
-                return (
-                  <tr key={c.symbol} className="border-b last:border-0 hover:bg-gray-50 dark:hover:bg-gray-800">
-                    <td className="py-2 pr-3 text-xs text-gray-500">{i + 1}</td>
-                    <td className="py-2 pr-3 font-medium">{c.symbol}</td>
-                    <td className="py-2 pr-3 text-right tabular-nums">₹{c.prior_close.toFixed(2)}</td>
-                    <td className="py-2 pr-3 text-right tabular-nums text-gray-500">₹{c.prev_prior_close.toFixed(2)}</td>
-                    <td className="py-2 pr-3 text-right tabular-nums font-medium text-green-600 dark:text-green-400">
-                      <TrendingUp className="inline w-3 h-3 mr-1" />
-                      +{c.prior_day_return_pct.toFixed(2)}%
-                    </td>
-                    <td className="py-2 pr-3">
-                      {fired ? (
-                        <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300">
-                          fired
-                        </span>
-                      ) : entryCronRan ? (
-                        <span
-                          className="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300"
-                          title="Entry cron ran but this candidate did not pass the closing-vol filter (signed_vol_ratio ≤ -0.5 required)"
-                        >
-                          rejected
-                        </span>
-                      ) : (
-                        <span
-                          className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"
-                          title="15:27 entry cron has not run yet"
-                        >
-                          pending
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  );
-}
