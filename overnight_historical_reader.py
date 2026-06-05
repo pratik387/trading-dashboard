@@ -191,9 +191,20 @@ class OvernightHistoricalReader:
         }
 
     def get_ledger(self, archive_date: str, limit: Optional[int] = None) -> Dict:
-        """Return archived tripwire ledger as-of `archive_date` EOD."""
+        """Return archived tripwire ledger as-of `archive_date` EOD.
+
+        Filters trades by `ts_iso <= archive_date 23:59:59`. The on-disk
+        ledger is a CUMULATIVE file (overwritten each day with the full
+        history). When backfilling past dates we upload the CURRENT
+        ledger snapshot, which contains future trades. This filter
+        slices to the EOD-as-of-archive-date view so the dashboard
+        shows correct historical cumulative numbers regardless of
+        which snapshot was uploaded.
+        """
         data = self._get_json(archive_date, "decay_tripwire.json")
-        trades = data.get("trades", [])
+        all_trades = data.get("trades", [])
+        eod_cutoff = f"{archive_date}T23:59:59"
+        trades = [t for t in all_trades if t.get("ts_iso", "") <= eod_cutoff]
         if limit:
             trades = trades[-limit:]
         return {
@@ -206,6 +217,7 @@ class OvernightHistoricalReader:
             "loaded_from": f"oci://{self.bucket_name}/{self._object_name(archive_date, 'decay_tripwire.json')}",
             "loaded_at": None,
             "archive_date": archive_date,
+            "trades_filtered_after_eod": len(all_trades) - len(trades),
         }
 
     def get_summary(self, archive_date: str) -> Dict:
