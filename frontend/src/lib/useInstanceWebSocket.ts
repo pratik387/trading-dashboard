@@ -41,8 +41,6 @@ interface UseInstanceWebSocketResult {
  */
 const WS_PORT_MAP: Record<number, number> = {
   8081: 8091, // fixed_risk instance
-  8082: 8092, // relative instance
-  8083: 8093, // 1 year testing instance
   8090: 8094, // live trading
 };
 

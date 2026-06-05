@@ -45,7 +45,7 @@ const PnLHistogramChart = dynamic(
 );
 
 type TabType = "overview" | "setups" | "daily" | "trades";
-type ConfigType = "fixed" | "relative" | "1year" | "live";
+type ConfigType = "fixed" | "live";
 
 export default function HistoricalPage() {
   const [configType, setConfigType] = useState<ConfigType>("fixed");
@@ -124,8 +124,6 @@ export default function HistoricalPage() {
             className="text-sm border rounded-lg px-3 py-2 bg-white dark:bg-gray-800 font-medium"
           >
             <option value="fixed">Fixed (5L)</option>
-            <option value="relative">Relative (1%)</option>
-            <option value="1year">1 Year</option>
             <option value="live">Live</option>
           </select>
           <input
