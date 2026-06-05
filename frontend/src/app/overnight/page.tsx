@@ -14,6 +14,11 @@ import {
   fetchOvernightSummary,
   fetchOvernightCandidates,
   fetchOvernightCronHealth,
+  fetchOvernightHistoryDates,
+  fetchOvernightHistoryPool,
+  fetchOvernightHistoryLedger,
+  fetchOvernightHistorySummary,
+  fetchOvernightHistoryCandidates,
 } from "@/lib/api";
 import {
   Moon,
@@ -22,10 +27,12 @@ import {
   CheckCircle2,
   Clock,
   TrendingUp,
-  TrendingDown,
+  Archive,
+  Radio,
 } from "lucide-react";
 
 const REFRESH_INTERVAL_MS = 30000; // 30s — cron-driven setup, no need for tick speed
+const LIVE_MODE = "live"; // sentinel for the dropdown's "today (live)" option
 
 export default function OvernightPage() {
   const [pool, setPool] = useState<OvernightPool | null>(null);
@@ -33,25 +40,43 @@ export default function OvernightPage() {
   const [summary, setSummary] = useState<OvernightSummary | null>(null);
   const [candidates, setCandidates] = useState<OvernightCandidates | null>(null);
   const [cron, setCron] = useState<OvernightCronHealth | null>(null);
+  const [archivedDates, setArchivedDates] = useState<string[]>([]);
+  const [selectedDate, setSelectedDate] = useState<string>(LIVE_MODE);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [lastLoaded, setLastLoaded] = useState<string>("");
 
+  const isLive = selectedDate === LIVE_MODE;
+
   const loadAll = useCallback(async () => {
     try {
-      const [p, l, s, c, ch] = await Promise.all([
-        fetchOvernightPool(),
-        fetchOvernightLedger(),
-        fetchOvernightSummary(),
-        fetchOvernightCandidates(),
-        fetchOvernightCronHealth(),
-      ]);
-      setPool(p);
-      setLedger(l);
-      setSummary(s);
-      setCandidates(c);
-      setCron(ch);
+      if (isLive) {
+        const [p, l, s, c, ch] = await Promise.all([
+          fetchOvernightPool(),
+          fetchOvernightLedger(),
+          fetchOvernightSummary(),
+          fetchOvernightCandidates(),
+          fetchOvernightCronHealth(),
+        ]);
+        setPool(p);
+        setLedger(l);
+        setSummary(s);
+        setCandidates(c);
+        setCron(ch);
+      } else {
+        const [p, l, s, c] = await Promise.all([
+          fetchOvernightHistoryPool(selectedDate),
+          fetchOvernightHistoryLedger(selectedDate),
+          fetchOvernightHistorySummary(selectedDate),
+          fetchOvernightHistoryCandidates(selectedDate),
+        ]);
+        setPool(p);
+        setLedger(l);
+        setSummary(s);
+        setCandidates(c);
+        setCron(null); // cron-health isn't archived; only meaningful live
+      }
       setError(null);
       setLastLoaded(new Date().toLocaleTimeString());
     } catch (e) {
@@ -59,6 +84,13 @@ export default function OvernightPage() {
     } finally {
       setLoading(false);
     }
+  }, [isLive, selectedDate]);
+
+  // Populate archived-dates list once on mount.
+  useEffect(() => {
+    fetchOvernightHistoryDates()
+      .then((r) => setArchivedDates(r.dates))
+      .catch(() => setArchivedDates([])); // non-fatal -- bucket might be empty
   }, []);
 
   useEffect(() => {
@@ -66,10 +98,11 @@ export default function OvernightPage() {
   }, [loadAll]);
 
   useEffect(() => {
-    if (!autoRefresh) return;
+    // Only auto-refresh in live mode -- archived snapshots are immutable.
+    if (!autoRefresh || !isLive) return;
     const id = setInterval(loadAll, REFRESH_INTERVAL_MS);
     return () => clearInterval(id);
-  }, [autoRefresh, loadAll]);
+  }, [autoRefresh, isLive, loadAll]);
 
   if (loading && !pool) {
     return (
@@ -102,6 +135,17 @@ export default function OvernightPage() {
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <Moon className="w-6 h-6" />
             Overnight Setup
+            {isLive ? (
+              <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300 flex items-center gap-1 font-normal">
+                <Radio className="w-3 h-3" />
+                Live
+              </span>
+            ) : (
+              <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300 flex items-center gap-1 font-normal">
+                <Archive className="w-3 h-3" />
+                Archive · {selectedDate}
+              </span>
+            )}
           </h1>
           <p className="text-sm text-gray-500 mt-1">
             {summary?.setup_name || "close_dn_overnight_long"} — cron-driven (15:27 entry, 09:30 verify-exit)
@@ -109,12 +153,30 @@ export default function OvernightPage() {
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          <label className="flex items-center gap-1.5 text-sm cursor-pointer">
+        <div className="flex items-center gap-2 flex-wrap">
+          <select
+            value={selectedDate}
+            onChange={(e) => setSelectedDate(e.target.value)}
+            className="text-sm border rounded-lg px-3 py-2 bg-white dark:bg-gray-800 font-medium"
+            aria-label="Date selector"
+          >
+            <option value={LIVE_MODE}>Today (live)</option>
+            {archivedDates.map((d) => (
+              <option key={d} value={d}>
+                {d}
+              </option>
+            ))}
+          </select>
+
+          <label className={cn(
+            "flex items-center gap-1.5 text-sm",
+            isLive ? "cursor-pointer" : "cursor-not-allowed opacity-50"
+          )}>
             <input
               type="checkbox"
-              checked={autoRefresh}
+              checked={autoRefresh && isLive}
               onChange={(e) => setAutoRefresh(e.target.checked)}
+              disabled={!isLive}
               className="rounded"
             />
             Auto-refresh (30s)
@@ -129,8 +191,8 @@ export default function OvernightPage() {
         </div>
       </div>
 
-      {/* Cron health banner */}
-      {cron && <CronHealthBanner cron={cron} />}
+      {/* Cron health banner -- live only; archived view has no cron-health concept */}
+      {isLive && cron && <CronHealthBanner cron={cron} />}
 
       {/* Stale slot warning */}
       {pool && pool.stale_slots.length > 0 && (

@@ -504,3 +504,39 @@ export async function fetchOvernightCronHealth(): Promise<OvernightCronHealth> {
   if (!res.ok) throw new Error("Failed to fetch cron health");
   return res.json();
 }
+
+// Historical (OCI archive) variants. Same response shapes as the live
+// variants -- the page picks based on selected date.
+
+export async function fetchOvernightHistoryDates(): Promise<{ dates: string[] }> {
+  const res = await fetch(`${API_BASE}/api/overnight/history/dates`);
+  if (!res.ok) throw new Error("Failed to fetch archived dates");
+  return res.json();
+}
+
+export async function fetchOvernightHistoryPool(date: string): Promise<OvernightPool> {
+  const res = await fetch(`${API_BASE}/api/overnight/history/${date}/pool`);
+  if (!res.ok) throw new Error("Failed to fetch archived pool");
+  return res.json();
+}
+
+export async function fetchOvernightHistoryLedger(date: string, limit?: number): Promise<OvernightLedger> {
+  const url = limit
+    ? `${API_BASE}/api/overnight/history/${date}/ledger?limit=${limit}`
+    : `${API_BASE}/api/overnight/history/${date}/ledger`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("Failed to fetch archived ledger");
+  return res.json();
+}
+
+export async function fetchOvernightHistorySummary(date: string): Promise<OvernightSummary> {
+  const res = await fetch(`${API_BASE}/api/overnight/history/${date}/summary`);
+  if (!res.ok) throw new Error("Failed to fetch archived summary");
+  return res.json();
+}
+
+export async function fetchOvernightHistoryCandidates(date: string): Promise<OvernightCandidates> {
+  const res = await fetch(`${API_BASE}/api/overnight/history/${date}/candidates`);
+  if (!res.ok) throw new Error("Failed to fetch archived candidates");
+  return res.json();
+}
