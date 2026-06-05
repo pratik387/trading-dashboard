@@ -67,16 +67,28 @@ from pathlib import Path
 
 from oci_reader import OCIDataReader
 from local_reader import LocalDataReader
+from overnight_reader import OvernightReader
 
 
 # ============ Instance Registry ============
 # Maps instance names to their health server ports
 # Can be overridden by instances.json config file
+#
+# `overnight` is special: it has no HTTP health server because the setup
+# is cron-driven (two short-lived processes per day, not a long-running
+# server). port=None signals "no proxy_to_engine path"; the dashboard
+# reads its state via OvernightReader (direct VM-local filesystem
+# access). See OVERNIGHT_INTEGRATION_PLAN.md.
 
 DEFAULT_INSTANCES = {
     "fixed": {"port": 8081, "type": "paper", "description": "Fixed risk paper trading"},
+    "overnight": {"port": None, "type": "cron", "description": "close_dn_overnight_long (cron-driven)"},
     "live": {"port": 8090, "type": "live", "description": "Live trading"},
 }
+
+# Module-level reader. OvernightReader is stateless (rereads files on
+# every call), so single instance is fine.
+overnight_reader = OvernightReader()
 
 def load_instances() -> Dict[str, Dict]:
     """Load instance registry from config file or use defaults."""
@@ -95,11 +107,26 @@ INSTANCES = load_instances()
 async def proxy_to_engine(instance: str, path: str, method: str = "GET",
                           body: Optional[dict] = None,
                           admin_token: Optional[str] = None) -> dict:
-    """Proxy request to engine health server."""
+    """Proxy request to engine health server.
+
+    Returns 404 for cron-type instances (no HTTP server). Use the
+    dedicated /api/overnight/* endpoints for those.
+    """
     if instance not in INSTANCES:
         raise HTTPException(status_code=404, detail=f"Instance '{instance}' not found")
 
-    port = INSTANCES[instance]["port"]
+    inst_type = INSTANCES[instance].get("type")
+    port = INSTANCES[instance].get("port")
+
+    if inst_type == "cron" or port is None:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"Instance '{instance}' is cron-driven and has no HTTP "
+                f"server. Use the /api/overnight/* endpoints instead."
+            ),
+        )
+
     url = f"http://localhost:{port}{path}"
 
     headers = {}
@@ -770,6 +797,84 @@ async def get_live_events(config_type: str = "fixed", limit: int = 100):
 async def get_live_config_types():
     """Get available config types for live trading"""
     return {"config_types": ["fixed"]}
+
+
+# ============ Overnight Setup ============
+# close_dn_overnight_long is cron-driven (no health server). Reader pulls
+# state directly from the engine's VM-local files. See
+# OVERNIGHT_INTEGRATION_PLAN.md and overnight_reader.py.
+
+@app.get("/api/overnight/pool")
+async def overnight_pool():
+    """Current slot pool: active positions + capacity stats + stale slots."""
+    try:
+        return overnight_reader.get_slot_pool()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/overnight/ledger")
+async def overnight_ledger(limit: Optional[int] = None):
+    """Settled-trade PnL ledger (from decay tripwire). `limit` = recent N."""
+    try:
+        return overnight_reader.get_ledger(limit=limit)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/overnight/summary")
+async def overnight_summary():
+    """Cumulative PnL + WR + per-day breakdown + open-position count."""
+    try:
+        return overnight_reader.get_summary()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/overnight/candidates")
+async def overnight_candidates(session_date: Optional[str] = None):
+    """Pre-filtered candidate list for `session_date` (default: latest)."""
+    try:
+        return overnight_reader.get_candidates(session_date=session_date)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/overnight/fires/{session_date}")
+async def overnight_fires(session_date: str):
+    """All trades that settled on `session_date` (YYYY-MM-DD)."""
+    try:
+        return overnight_reader.get_fires_for_date(session_date)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/overnight/cron-health")
+async def overnight_cron_health():
+    """Today's verify-exit + entry cron health (log existence + mtime + tail)."""
+    try:
+        return overnight_reader.get_cron_health()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/overnight/logs/{cron}/{session_date}")
+async def overnight_log(cron: str, session_date: str):
+    """Full log content for a specific cron run.
+
+    Args:
+        cron: 'verify' or 'entry'
+        session_date: YYYY-MM-DD
+    """
+    try:
+        result = overnight_reader.get_log(cron=cron, session_date=session_date)
+        if "error" in result:
+            raise HTTPException(status_code=404, detail=result["error"])
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ============ WebSocket for Live Updates ============

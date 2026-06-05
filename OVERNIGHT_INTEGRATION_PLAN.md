@@ -199,22 +199,29 @@ Once live trading on close_dn starts, add admin endpoints to release stuck slots
 manually (currently done via `python3` one-liner on the VM). Out of scope for
 initial integration.
 
-## Open questions to resolve before Phase 1
+## Decisions (locked 2026-06-05)
 
-1. **Where does the dashboard run?** If it's on the same VM as the engine, the
-   reader can use direct file access. If it's on a separate machine, you need
-   to either:
-   - Sync the state files via rsync/scp on a schedule
-   - Or expose a tiny HTTP endpoint on the VM that serves the JSON files
-2. **OCI bucket integration for historical view?** Currently `oci_reader.py`
-   reads paper-trading session dirs from OCI. Overnight state isn't currently
-   uploaded anywhere. Decide:
-   - Upload `state/*.json` + `data/close_dn_baseline/*` to OCI nightly
-   - Or keep overnight purely VM-local for now (Phase 1 scope)
-3. **Multiple overnight setups in future?** The architecture assumes one
-   overnight setup. If/when another overnight setup is added (e.g. a SHORT
-   variant), the data structure needs a setup_name discriminator. For now
-   `close_dn_overnight_long` is hard-coded.
+1. **Dashboard runs VM-local.** OvernightReader uses direct filesystem access
+   on the same VM that runs the cron jobs. No rsync, no remote HTTP layer.
+   Base path is the same `Path.home() / 'intraday_fixed/intraday-trade-assistant'`
+   already used by `local_reader.py`.
+
+2. **OCI archival is in scope** — but on the engine side, not the dashboard side.
+   A new cron in the `intraday-trade-assistant` repo will upload daily snapshots
+   of:
+   - `state/overnight_slots.json`
+   - `state/decay_tripwire_close_dn_overnight_long.json`
+   - `data/close_dn_baseline/{baseline,candidates}_<date>.json`
+   - `logs/overnight_{verify,entry}_<date>.log`
+   into a new OCI prefix `overnight/close_dn_overnight_long/<date>/...`. The
+   dashboard's `oci_reader.py` gets a corresponding historical-view path so
+   Phase 3+ can show "yesterday's slot pool snapshot" etc. Implementation of
+   this cron is out of scope for Phase 1 (which is VM-local only); track as
+   a separate follow-up in the engine repo.
+
+3. **Single overnight setup hard-coded** as `close_dn_overnight_long`. No
+   setup_name discriminator yet — if/when a SHORT or second variant ships,
+   the schema gets a generalization pass. Keeps Phase 1 lean.
 
 ## What this gives you
 
