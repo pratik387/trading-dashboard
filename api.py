@@ -68,6 +68,7 @@ from pathlib import Path
 from oci_reader import OCIDataReader
 from local_reader import LocalDataReader
 from overnight_reader import OvernightReader
+from overnight_historical_reader import OvernightHistoricalReader
 
 
 # ============ Instance Registry ============
@@ -86,9 +87,20 @@ DEFAULT_INSTANCES = {
     "live": {"port": 8090, "type": "live", "description": "Live trading"},
 }
 
-# Module-level reader. OvernightReader is stateless (rereads files on
-# every call), so single instance is fine.
+# Module-level readers. Both stateless (re-read files on every call),
+# so single instances are fine. OvernightHistoricalReader is lazy-
+# initialized on first use because it requires the OCI client (heavier
+# than the local-file reader).
 overnight_reader = OvernightReader()
+overnight_historical_reader: Optional[OvernightHistoricalReader] = None
+
+
+def get_overnight_historical():
+    """Lazy-init the OCI historical reader."""
+    global overnight_historical_reader
+    if overnight_historical_reader is None:
+        overnight_historical_reader = OvernightHistoricalReader()
+    return overnight_historical_reader
 
 def load_instances() -> Dict[str, Dict]:
     """Load instance registry from config file or use defaults."""
@@ -868,6 +880,71 @@ async def overnight_log(cron: str, session_date: str):
     """
     try:
         result = overnight_reader.get_log(cron=cron, session_date=session_date)
+        if "error" in result:
+            raise HTTPException(status_code=404, detail=result["error"])
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─── Overnight historical (OCI archive) ─────────────────────────────────
+# Read past-day overnight state from the OCI archive prefix populated by
+# the engine's 16:00 IST cron-archive-overnight.sh. Same response shapes
+# as the live /api/overnight/* endpoints so the same React components
+# can render both.
+
+@app.get("/api/overnight/history/dates")
+async def overnight_history_dates():
+    """List of archived dates (sorted newest first)."""
+    try:
+        return {"dates": get_overnight_historical().list_dates()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/overnight/history/{archive_date}/pool")
+async def overnight_history_pool(archive_date: str):
+    """Archived slot pool snapshot for `archive_date`."""
+    try:
+        return get_overnight_historical().get_slot_pool(archive_date)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/overnight/history/{archive_date}/ledger")
+async def overnight_history_ledger(archive_date: str, limit: Optional[int] = None):
+    """Archived ledger as-of EOD on `archive_date`."""
+    try:
+        return get_overnight_historical().get_ledger(archive_date, limit=limit)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/overnight/history/{archive_date}/summary")
+async def overnight_history_summary(archive_date: str):
+    """Cumulative summary + per-day breakdown as-of `archive_date`."""
+    try:
+        return get_overnight_historical().get_summary(archive_date)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/overnight/history/{archive_date}/candidates")
+async def overnight_history_candidates(archive_date: str):
+    """Archived candidate list for `archive_date`."""
+    try:
+        return get_overnight_historical().get_candidates(archive_date)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/overnight/history/{archive_date}/logs/{cron}")
+async def overnight_history_log(archive_date: str, cron: str):
+    """Archived cron log for `archive_date`. cron ∈ {verify, entry}."""
+    try:
+        result = get_overnight_historical().get_log(archive_date, cron)
         if "error" in result:
             raise HTTPException(status_code=404, detail=result["error"])
         return result
