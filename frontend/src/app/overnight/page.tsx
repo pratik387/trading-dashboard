@@ -248,7 +248,13 @@ export default function OvernightPage() {
       {ledger && summary && <LedgerPanel ledger={ledger} dailyBreakdown={summary.daily_breakdown} />}
 
       {/* Panel 3: Today's candidates */}
-      {candidates && <CandidatesPanel candidates={candidates} pool={pool} />}
+      {candidates && (
+        <CandidatesPanel
+          candidates={candidates}
+          pool={pool}
+          entryCronRan={isLive ? !!cron?.entry.exists : true}
+        />
+      )}
     </div>
   );
 }
@@ -668,9 +674,11 @@ function CumulativeChart({ data }: { data: { idx: number; cum: number; pnl: numb
 function CandidatesPanel({
   candidates,
   pool,
+  entryCronRan,
 }: {
   candidates: OvernightCandidates;
   pool: OvernightPool | null;
+  entryCronRan: boolean;
 }) {
   // Symbols already in pool (active or just-settled) — for "already fired" badging
   const firedSymbols = new Set(pool?.active_slots.map((s) => s.symbol).filter(Boolean));
@@ -727,8 +735,18 @@ function CandidatesPanel({
                         <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300">
                           fired
                         </span>
+                      ) : entryCronRan ? (
+                        <span
+                          className="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300"
+                          title="Entry cron ran but this candidate did not pass the closing-vol filter (signed_vol_ratio ≤ -0.5 required)"
+                        >
+                          rejected
+                        </span>
                       ) : (
-                        <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400">
+                        <span
+                          className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"
+                          title="15:27 entry cron has not run yet"
+                        >
                           pending
                         </span>
                       )}
