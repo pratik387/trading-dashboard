@@ -238,8 +238,11 @@ export default function OvernightPage() {
         </div>
       )}
 
-      {/* Panel 1: Slot pool */}
-      {pool && <SlotPoolPanel pool={pool} />}
+      {/* Panel 1a: Open positions (t0_open only) */}
+      {pool && <OpenPositionsPanel pool={pool} />}
+
+      {/* Panel 1b: Closed today (t1_settling — sold today, awaiting T+1 settle) */}
+      {pool && <ClosedTodayPanel pool={pool} />}
 
       {/* Panel 2: Trade ledger */}
       {ledger && summary && <LedgerPanel ledger={ledger} dailyBreakdown={summary.daily_breakdown} />}
@@ -332,24 +335,29 @@ function CronCell({
   );
 }
 
-// ─── Panel 1: Slot pool ────────────────────────────────────────────────
+// ─── Panel 1a: Open positions (t0_open) ────────────────────────────────
 
-function SlotPoolPanel({ pool }: { pool: OvernightPool }) {
+function OpenPositionsPanel({ pool }: { pool: OvernightPool }) {
+  const open = pool.active_slots.filter((s) => s.status === "t0_open");
+
   return (
     <div className="rounded-lg border bg-white dark:bg-gray-900 p-4 space-y-3">
       <div className="flex items-center justify-between">
         <h2 className="font-semibold flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-blue-500"></span>
-          Slot Pool
+          Open Positions
+          <span className="text-xs font-normal text-gray-500">
+            ({open.length}/{pool.max_slots})
+          </span>
         </h2>
         <span className="text-xs text-gray-500">
-          {pool.new_today_count} new today / {pool.max_slots} cap
+          {pool.new_today_count} new today
         </span>
       </div>
 
-      {pool.active_slots.length === 0 ? (
+      {open.length === 0 ? (
         <div className="text-sm text-gray-500 py-6 text-center">
-          No active positions
+          No open positions
         </div>
       ) : (
         <div className="overflow-x-auto">
@@ -358,30 +366,84 @@ function SlotPoolPanel({ pool }: { pool: OvernightPool }) {
               <tr className="text-left text-xs text-gray-500 border-b">
                 <th className="py-2 pr-3">Slot</th>
                 <th className="py-2 pr-3">Symbol</th>
-                <th className="py-2 pr-3">Status</th>
                 <th className="py-2 pr-3 text-right">Buy</th>
-                <th className="py-2 pr-3 text-right">Sell</th>
                 <th className="py-2 pr-3 text-right">Qty</th>
                 <th className="py-2 pr-3">Product</th>
-                <th className="py-2 pr-3 text-right">PnL</th>
-                <th className="py-2 pr-3">Exit Date</th>
+                <th className="py-2 pr-3 text-right">Notional</th>
+                <th className="py-2 pr-3">Expected Exit</th>
               </tr>
             </thead>
             <tbody>
-              {pool.active_slots.map((s) => (
+              {open.map((s) => (
                 <tr key={s.slot_id} className="border-b last:border-0 hover:bg-gray-50 dark:hover:bg-gray-800">
                   <td className="py-2 pr-3 text-gray-500">{s.slot_id}</td>
                   <td className="py-2 pr-3 font-medium">{s.symbol}</td>
+                  <td className="py-2 pr-3 text-right tabular-nums">
+                    {s.buy_fill_price != null ? `₹${s.buy_fill_price.toFixed(2)}` : "—"}
+                  </td>
+                  <td className="py-2 pr-3 text-right tabular-nums text-gray-600">
+                    {s.qty?.toLocaleString() ?? "—"}
+                  </td>
+                  <td className="py-2 pr-3 text-xs text-gray-600 dark:text-gray-400">{s.product ?? "—"}</td>
+                  <td className="py-2 pr-3 text-right tabular-nums text-gray-600">
+                    {s.notional_inr != null ? formatINR(s.notional_inr) : "—"}
+                  </td>
+                  <td className="py-2 pr-3 text-xs text-gray-500">{s.expected_exit_date ?? "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Panel 1b: Closed today (t1_settling) ──────────────────────────────
+
+function ClosedTodayPanel({ pool }: { pool: OvernightPool }) {
+  const closed = pool.active_slots.filter((s) => s.status === "t1_settling");
+
+  if (closed.length === 0) return null;
+
+  return (
+    <div className="rounded-lg border bg-white dark:bg-gray-900 p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <h2 className="font-semibold flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-purple-500"></span>
+          Closed Today
+          <span className="text-xs font-normal text-gray-500">
+            ({closed.length} sold today · awaiting T+1 settle)
+          </span>
+        </h2>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-xs text-gray-500 border-b">
+              <th className="py-2 pr-3">Symbol</th>
+              <th className="py-2 pr-3">Side</th>
+              <th className="py-2 pr-3 text-right">Entry</th>
+              <th className="py-2 pr-3 text-right">Exit</th>
+              <th className="py-2 pr-3 text-right">Qty</th>
+              <th className="py-2 pr-3 text-right">PnL</th>
+              <th className="py-2 pr-3 text-right">PnL %</th>
+              <th className="py-2 pr-3">Product</th>
+            </tr>
+          </thead>
+          <tbody>
+            {closed.map((s) => {
+              const cost = (s.buy_fill_price ?? 0) * (s.qty ?? 0);
+              const pnlPct = cost > 0 && s.realized_pnl_inr != null
+                ? (s.realized_pnl_inr / cost) * 100
+                : null;
+              return (
+                <tr key={s.slot_id} className="border-b last:border-0 hover:bg-gray-50 dark:hover:bg-gray-800">
+                  <td className="py-2 pr-3 font-medium">{s.symbol}</td>
                   <td className="py-2 pr-3">
-                    <span
-                      className={cn(
-                        "text-xs px-2 py-0.5 rounded-full",
-                        s.status === "t0_open"
-                          ? "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300"
-                          : "bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300"
-                      )}
-                    >
-                      {s.status}
+                    <span className="text-xs px-2 py-0.5 rounded bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300 font-medium">
+                      LONG
                     </span>
                   </td>
                   <td className="py-2 pr-3 text-right tabular-nums">
@@ -393,7 +455,6 @@ function SlotPoolPanel({ pool }: { pool: OvernightPool }) {
                   <td className="py-2 pr-3 text-right tabular-nums text-gray-600">
                     {s.qty?.toLocaleString() ?? "—"}
                   </td>
-                  <td className="py-2 pr-3 text-xs text-gray-600 dark:text-gray-400">{s.product ?? "—"}</td>
                   <td className={cn(
                     "py-2 pr-3 text-right tabular-nums font-medium",
                     s.realized_pnl_inr == null
@@ -404,13 +465,23 @@ function SlotPoolPanel({ pool }: { pool: OvernightPool }) {
                   )}>
                     {s.realized_pnl_inr != null ? formatINR(s.realized_pnl_inr) : "pending"}
                   </td>
-                  <td className="py-2 pr-3 text-xs text-gray-500">{s.expected_exit_date}</td>
+                  <td className={cn(
+                    "py-2 pr-3 text-right tabular-nums",
+                    pnlPct == null
+                      ? "text-gray-400"
+                      : pnlPct >= 0
+                        ? "text-green-600 dark:text-green-400"
+                        : "text-red-600 dark:text-red-400"
+                  )}>
+                    {pnlPct != null ? `${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%` : "—"}
+                  </td>
+                  <td className="py-2 pr-3 text-xs text-gray-600 dark:text-gray-400">{s.product ?? "—"}</td>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
