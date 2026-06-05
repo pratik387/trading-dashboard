@@ -371,3 +371,136 @@ export async function adminPause(instance: string, reason: string, token: string
 export async function adminResume(instance: string, token: string): Promise<any> {
   return adminRequest(instance, "resume", {}, token);
 }
+
+// ============ Overnight Setup APIs (close_dn_overnight_long) ============
+// These read VM-local JSON files via overnight_reader.py on the backend.
+// No HTTP server on the engine side -- the setup is cron-driven.
+
+export interface OvernightSlot {
+  slot_id: number;
+  status: "t0_open" | "t1_settling" | "free";
+  symbol: string | null;
+  buy_fill_price: number | null;
+  sell_fill_price: number | null;
+  product: "CNC" | "MTF" | null;
+  qty?: number;
+  margin_inr: number | null;
+  notional_inr: number | null;
+  fees_inr: number | null;
+  interest_inr: number | null;
+  realized_pnl_inr: number | null;
+  reserved_today: string | null;
+  expected_exit_date: string | null;
+}
+
+export interface OvernightPool {
+  max_slots: number;
+  free_count: number;
+  t0_open_count: number;
+  t1_settling_count: number;
+  new_today_count: number;
+  active_slots: OvernightSlot[];
+  stale_slots: OvernightSlot[];
+  loaded_from: string;
+  loaded_at: string | null;
+}
+
+export interface OvernightLedgerEntry {
+  net_pnl_inr: number;
+  ts_iso: string;
+}
+
+export interface OvernightLedger {
+  setup_name: string;
+  window_trades: number | null;
+  pf_floor: number | null;
+  trades: OvernightLedgerEntry[];
+  first_below_floor_ts: string | null;
+  paused_since: string | null;
+  loaded_from: string | null;
+  loaded_at: string | null;
+}
+
+export interface OvernightDailyRow {
+  date: string;
+  fires: number;
+  net_pnl: number;
+  wr_pct: number;
+}
+
+export interface OvernightSummary {
+  setup_name: string;
+  total_trades: number;
+  cumulative_pnl: number;
+  wins: number;
+  losses: number;
+  win_rate_pct: number;
+  current_open_positions: number;
+  max_slots: number;
+  stale_slot_count: number;
+  daily_breakdown: OvernightDailyRow[];
+}
+
+export interface OvernightCandidate {
+  symbol: string;
+  prior_close: number;
+  prev_prior_close: number;
+  prior_day_return_pct: number;
+}
+
+export interface OvernightCandidates {
+  session_date: string | null;
+  cell_min_prior_ret_pct: number | null;
+  computed_at: string | null;
+  n_candidates: number;
+  candidates: OvernightCandidate[];
+  loaded_from: string | null;
+  loaded_at: string | null;
+}
+
+export interface OvernightCronStatus {
+  log_path: string | null;
+  exists: boolean;
+  mtime_iso: string | null;
+  tail: string | null;
+}
+
+export interface OvernightCronHealth {
+  today: string;
+  verify_exit: OvernightCronStatus;
+  entry: OvernightCronStatus;
+}
+
+export async function fetchOvernightPool(): Promise<OvernightPool> {
+  const res = await fetch(`${API_BASE}/api/overnight/pool`);
+  if (!res.ok) throw new Error("Failed to fetch overnight pool");
+  return res.json();
+}
+
+export async function fetchOvernightLedger(limit?: number): Promise<OvernightLedger> {
+  const url = limit ? `${API_BASE}/api/overnight/ledger?limit=${limit}` : `${API_BASE}/api/overnight/ledger`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("Failed to fetch overnight ledger");
+  return res.json();
+}
+
+export async function fetchOvernightSummary(): Promise<OvernightSummary> {
+  const res = await fetch(`${API_BASE}/api/overnight/summary`);
+  if (!res.ok) throw new Error("Failed to fetch overnight summary");
+  return res.json();
+}
+
+export async function fetchOvernightCandidates(sessionDate?: string): Promise<OvernightCandidates> {
+  const url = sessionDate
+    ? `${API_BASE}/api/overnight/candidates?session_date=${sessionDate}`
+    : `${API_BASE}/api/overnight/candidates`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("Failed to fetch overnight candidates");
+  return res.json();
+}
+
+export async function fetchOvernightCronHealth(): Promise<OvernightCronHealth> {
+  const res = await fetch(`${API_BASE}/api/overnight/cron-health`);
+  if (!res.ok) throw new Error("Failed to fetch cron health");
+  return res.json();
+}
