@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useState, ReactNode } from "react";
 
-type ConfigType = "fixed" | "relative" | "1year";
+type ConfigType = "fixed";
 
 interface ConfigContextType {
   configType: ConfigType;

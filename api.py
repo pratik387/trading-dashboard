@@ -9,13 +9,11 @@ REST API for trading data. Frontend-agnostic - works with:
 
 Bucket structure:
     paper-trading-logs/
-    ├── fixed/
-    │   └── paper_20260101_084724/
-    │       ├── analytics.jsonl
-    │       ├── events.jsonl
-    │       └── ...
-    ├── relative/
-    └── 1year/
+    └── fixed/
+        └── paper_20260101_084724/
+            ├── analytics.jsonl
+            ├── events.jsonl
+            └── ...
 
 Run:
     uvicorn api:app --host 0.0.0.0 --port 8000
@@ -43,7 +41,7 @@ Endpoints:
     GET  /api/live/events?config_type=fixed             - Get recent events
 
     # Historical (OCIDataReader - Object Storage)
-    GET  /api/config-types                              - List config types (fixed, relative, 1year)
+    GET  /api/config-types                              - List config types (fixed only; legacy types hidden)
     GET  /api/runs/{config_type}                        - List runs for a config type
     GET  /api/runs/{config_type}/{run_id}               - Get run details
     GET  /api/runs/{config_type}/{run_id}/summary       - Get run summary
@@ -77,8 +75,6 @@ from local_reader import LocalDataReader
 
 DEFAULT_INSTANCES = {
     "fixed": {"port": 8081, "type": "paper", "description": "Fixed risk paper trading"},
-    "relative": {"port": 8082, "type": "paper", "description": "Relative risk paper trading"},
-    "1year": {"port": 8083, "type": "paper", "description": "1-year backtest config"},
     "live": {"port": 8090, "type": "live", "description": "Live trading"},
 }
 
@@ -144,7 +140,7 @@ app.add_middleware(
 )
 
 # Initialize OCI readers
-# paper_reader for paper trading logs (fixed, relative, 1year)
+# paper_reader for paper trading logs (fixed)
 # live_reader for live trading logs
 paper_reader = None
 live_reader = None
@@ -154,8 +150,6 @@ live_reader = None
 CAPITAL_FALLBACK = {
     "live": 10000,      # Default fallback for live runs
     "fixed": 500000,    # 5L for paper trading
-    "relative": 500000, # 5L for paper trading
-    "1year": 500000,    # 5L for paper trading
 }
 
 def get_reader(config_type: str = None):
@@ -218,13 +212,19 @@ async def root():
 
 @app.get("/api/config-types")
 async def list_config_types():
-    """List all config types (top-level folders like fixed, relative, 1year, live)"""
+    """List all config types currently surfaced in the UI (fixed + live).
+
+    Note: list_config_types() on the OCI reader may still find legacy
+    folders (relative, 1year) in the historical bucket — filter them out
+    here so the dashboard UI doesn't offer dead options.
+    """
     try:
         config_types = get_reader().list_config_types()
-        # Add live option (reads from live-trading-logs bucket)
-        if "live" not in config_types:
-            config_types.append("live")
-        return {"config_types": config_types}
+        # Active config types only
+        active = [c for c in config_types if c == "fixed"]
+        if "live" not in active:
+            active.append("live")
+        return {"config_types": active}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -769,7 +769,7 @@ async def get_live_events(config_type: str = "fixed", limit: int = 100):
 @app.get("/api/live/config-types")
 async def get_live_config_types():
     """Get available config types for live trading"""
-    return {"config_types": ["fixed", "relative", "1year"]}
+    return {"config_types": ["fixed"]}
 
 
 # ============ WebSocket for Live Updates ============

@@ -14,11 +14,12 @@ from datetime import datetime
 import pandas as pd
 
 
-# VM paths for each config type
+# VM paths for each config type. Legacy 'relative' / '1year' instances
+# are no longer surfaced in the dashboard UI (see api.py config-types
+# filter) but the path mapping is kept here so any local data still on
+# disk can still be read directly if needed for one-off recovery.
 CONFIG_PATHS = {
     'fixed': 'intraday_fixed/intraday-trade-assistant',
-    'relative': 'intraday/intraday-trade-assistant',
-    '1year': 'intraday_1year/intraday-trade-assistant'
 }
 
 
@@ -28,8 +29,6 @@ class LocalDataReader:
 
     Directory structure per config:
         ~/intraday_fixed/intraday-trade-assistant/   (fixed)
-        ~/intraday/intraday-trade-assistant/         (relative)
-        ~/intraday_1year/intraday-trade-assistant/   (1year)
 
         Each contains:
         ├── logs/
@@ -46,7 +45,7 @@ class LocalDataReader:
         Initialize local reader for a specific config type.
 
         Args:
-            config_type: One of 'fixed', 'relative', '1year'
+            config_type: 'fixed' (the only surfaced paper instance)
         """
         self.config_type = config_type
         self._set_paths(config_type)
@@ -595,7 +594,9 @@ class LocalDataReader:
             'available_capital': available_capital,
             'capital_utilization_pct': (capital_in_positions / initial_capital * 100) if initial_capital else 0,
             'tick_files_count': len(tick_files),
-            'tick_files_path': str(self.ticks_path),
+            # Note: filesystem path intentionally not returned. Use
+            # tick_files_count instead. Leaking the VM's absolute path
+            # serves no UI need and exposes internal structure.
             'ticks_found': len(ticks),
             'symbols_searched': symbols,
             'symbols_matched': list(ticks.keys()),
