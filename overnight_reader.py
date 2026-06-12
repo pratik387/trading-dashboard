@@ -129,10 +129,31 @@ class OvernightReader:
             if buy and notional:
                 entry["qty"] = int(round(notional / buy))
 
-            # Stale: expected_exit_date in the past but slot not free
+            # Stale = REAL orphan (cron broken / settle never happened), NOT a slot
+            # in its normal T+1/T+2 release window.
+            #
+            # Slot lifecycle for close_dn_overnight_long:
+            #   Day T   15:26: BUY fills -> status="t0_open", exit_d=T+1
+            #   Day T+1 09:30: AMO fills -> settle() -> status="t1_settling"
+            #   Day T+2 09:30: cash credited -> release() -> status="free"
+            #
+            # Between T+1 09:30 and T+2 09:30, a slot is correctly t1_settling
+            # with exit_d=T+1 (already in the past). That is NOT stale — it's
+            # awaiting today's release cron. Flagging it alarms unnecessarily.
+            #
+            # Real orphans we want to surface:
+            #   * t0_open with exit_d < today  -> AMO never filled / settle never ran
+            #   * t1_settling with exit_d > 3 calendar days ago -> release cron broken
+            #     (3 days covers weekends + 1 holiday; the natural window is 1
+            #     trading day, so anything beyond that is genuinely stuck)
             exit_d = s.get("expected_exit_date")
-            if exit_d and exit_d < today and status != "free":
-                stale.append(entry)
+            if exit_d and status != "free":
+                exit_dt = _date.fromisoformat(exit_d)
+                today_dt = _date.fromisoformat(today)
+                if status == "t0_open" and exit_dt < today_dt:
+                    stale.append(entry)
+                elif status == "t1_settling" and (today_dt - exit_dt).days > 3:
+                    stale.append(entry)
             active.append(entry)
 
         return {
