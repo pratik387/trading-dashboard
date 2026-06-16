@@ -118,6 +118,34 @@ def test_aggregate_surfaces_real_fees_when_present(tmp_path):
     assert agg["gross_pnl"] == 950.0   # net + fees
 
 
+def test_trades_carry_per_symbol_detail_when_present(tmp_path):
+    """When the ledger carries symbol/entry/exit/reason, the trades rows surface
+    them instead of the '—'/0/'settled' placeholder."""
+    _write_ledger(tmp_path, "mtf_capitulation_revert_long", [
+        {"net_pnl_inr": 300.0, "ts_iso": "2026-06-16T15:30:00",
+         "symbol": "TATAMOTORS", "entry_price": 650.5, "exit_price": 660.0,
+         "exit_reason": "kday_close_moc", "qty": 100},
+    ])
+    agg = SwingReader(tmp_path).get_aggregate(setup="mtf_capitulation_revert_long")
+    t = agg["trades"][0]
+    assert t["symbol"] == "TATAMOTORS"
+    assert t["entry"] == 650.5
+    assert t["exit"] == 660.0
+    assert t["exit_reason"] == "kday_close_moc"
+    assert t["qty"] == 100
+
+
+def test_trades_fall_back_to_placeholder_when_detail_absent(tmp_path):
+    """Legacy net-only rows keep the placeholder so the tab still renders."""
+    _write_ledger(tmp_path, "close_dn_overnight_long", [
+        {"net_pnl_inr": 100.0, "ts_iso": "2026-06-15T09:30:00"},
+    ])
+    t = SwingReader(tmp_path).get_aggregate(setup="close_dn_overnight_long")["trades"][0]
+    assert t["symbol"] == "—"
+    assert t["entry"] == 0 and t["exit"] == 0
+    assert t["exit_reason"] == "settled"
+
+
 def test_aggregate_fee_fallback_when_absent(tmp_path):
     """Legacy net-only records: total_fees=0, gross==net (unchanged behavior)."""
     _write_ledger(tmp_path, "close_dn_overnight_long", [

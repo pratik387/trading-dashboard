@@ -98,6 +98,12 @@ class SwingReader:
                 rows.append({
                     "setup": s, "pnl": float(t.get("net_pnl_inr", 0.0)), "date": d,
                     "fees": float(fee) if fee is not None else 0.0,
+                    # Per-trade detail (None on legacy net-only rows).
+                    "symbol": t.get("symbol"),
+                    "entry_price": t.get("entry_price"),
+                    "exit_price": t.get("exit_price"),
+                    "exit_reason": t.get("exit_reason"),
+                    "qty": t.get("qty"),
                 })
 
         total_pnl = sum(r["pnl"] for r in rows)
@@ -140,9 +146,17 @@ class SwingReader:
             })
 
         days = len(daily_data)
+        # Per-trade rows. Detail is populated once the engine persists it at settle
+        # (forward-only); legacy net-only rows keep the placeholder so the tab still
+        # renders the PnL + date.
         trades = [{
-            "symbol": "—", "setup": r["setup"], "pnl": round(r["pnl"], 2),
-            "exit_reason": "settled", "entry": 0, "exit": 0, "date": r["date"],
+            "symbol": r["symbol"] if r["symbol"] is not None else "—",
+            "setup": r["setup"], "pnl": round(r["pnl"], 2),
+            "exit_reason": r["exit_reason"] if r["exit_reason"] is not None else "settled",
+            "entry": r["entry_price"] if r["entry_price"] is not None else 0,
+            "exit": r["exit_price"] if r["exit_price"] is not None else 0,
+            "qty": r["qty"] if r["qty"] is not None else 0,
+            "date": r["date"],
         } for r in rows]
 
         return {
