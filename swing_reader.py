@@ -94,9 +94,14 @@ class SwingReader:
                     continue
                 if date_to and d > date_to:
                     continue
-                rows.append({"setup": s, "pnl": float(t.get("net_pnl_inr", 0.0)), "date": d})
+                fee = t.get("fees_inr")
+                rows.append({
+                    "setup": s, "pnl": float(t.get("net_pnl_inr", 0.0)), "date": d,
+                    "fees": float(fee) if fee is not None else 0.0,
+                })
 
         total_pnl = sum(r["pnl"] for r in rows)
+        total_fees = sum(r["fees"] for r in rows)
         total_trades = len(rows)
         winners = sum(1 for r in rows if r["pnl"] > 0)
         losers = total_trades - winners
@@ -144,14 +149,16 @@ class SwingReader:
             "config_type": "swing",
             "capital": None,
             "days": days,
-            "gross_pnl": round(total_pnl, 2),
-            "net_pnl": round(total_pnl, 2),   # tripwire ledger is already net of fees+interest
+            # net_pnl_inr is already net of fees+interest; gross = net + fees when
+            # the ledger carries the cost breakdown, else gross falls back to net.
+            "gross_pnl": round(total_pnl + total_fees, 2),
+            "net_pnl": round(total_pnl, 2),
             "total_pnl": round(total_pnl, 2),
             "total_trades": total_trades,
             "winners": winners,
             "losers": losers,
             "win_rate": round(winners / total_trades * 100, 1) if total_trades else 0.0,
-            "total_fees": 0,
+            "total_fees": round(total_fees, 2),
             "avg_pnl_per_day": round(total_pnl / days, 2) if days else 0.0,
             "avg_pnl_per_trade": round(total_pnl / total_trades, 2) if total_trades else 0.0,
             "by_setup": by_setup,

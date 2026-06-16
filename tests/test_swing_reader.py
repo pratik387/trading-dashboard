@@ -103,6 +103,31 @@ def test_aggregate_empty_when_no_ledgers(tmp_path):
     assert agg["by_setup"] == [] and agg["daily_data"] == []
 
 
+def test_aggregate_surfaces_real_fees_when_present(tmp_path):
+    """When the ledger carries fees_inr/gross_pnl_inr, the aggregate reports real
+    total_fees and gross = net + fees (not the net==gross / fees==0 fallback)."""
+    _write_ledger(tmp_path, "close_dn_overnight_long", [
+        {"net_pnl_inr": 850.0, "ts_iso": "2026-06-15T09:30:00",
+         "fees_inr": 120.0, "gross_pnl_inr": 970.0},
+        {"net_pnl_inr": -50.0, "ts_iso": "2026-06-15T09:30:01",
+         "fees_inr": 30.0, "gross_pnl_inr": -20.0},
+    ])
+    agg = SwingReader(tmp_path).get_aggregate(setup="close_dn_overnight_long")
+    assert agg["net_pnl"] == 800.0
+    assert agg["total_fees"] == 150.0
+    assert agg["gross_pnl"] == 950.0   # net + fees
+
+
+def test_aggregate_fee_fallback_when_absent(tmp_path):
+    """Legacy net-only records: total_fees=0, gross==net (unchanged behavior)."""
+    _write_ledger(tmp_path, "close_dn_overnight_long", [
+        {"net_pnl_inr": 100.0, "ts_iso": "2026-06-15T09:30:00"},
+    ])
+    agg = SwingReader(tmp_path).get_aggregate(setup="close_dn_overnight_long")
+    assert agg["total_fees"] == 0
+    assert agg["gross_pnl"] == 100.0 and agg["net_pnl"] == 100.0
+
+
 def test_per_setup_roots_resolve_each_setups_own_folder(tmp_path):
     """Overnight and the multi_day batch run from DIFFERENT engine folders on the
     VM (intraday_fixed vs multiday_cnc). Each setup's ledger must be read from its
