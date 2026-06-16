@@ -224,32 +224,53 @@ export async function fetchSwingAggregate(
   return res.json();
 }
 
-// Open (not-yet-settled) multi_day positions — the live book before exits settle.
-export interface SwingPosition {
+// The live multi-day book: open (held, marked-to-market) + pending entries.
+export interface MultidayOpenPosition {
   setup: string;
   symbol: string;
   qty: number;
   product: string | null;
   leverage: number | null;
-  signal_close: number;
+  entry_price: number;
   notional: number;
-  signal_date: string | null;
+  current_price: number | null;
+  live_pnl: number | null;
+  live_pnl_pct: number | null;
   entry_date: string | null;
   exit_on_date: string | null;
-  status: "pending_fill" | "held";
+  signal_date: string | null;
 }
 
-export interface SwingPositionsData {
-  positions: SwingPosition[];
-  by_setup: { setup: string; count: number; notional: number }[];
-  total_positions: number;
-  total_notional: number;
+export interface MultidayPendingPosition {
+  setup: string;
+  symbol: string;
+  qty: number;
+  product: string | null;
+  leverage: number | null;
+  ref_price: number;
+  notional: number;
+  fills_on: string | null;
+  exit_on_date: string | null;
+  signal_date: string | null;
+}
+
+export interface MultidayBook {
+  open: MultidayOpenPosition[];
+  pending: MultidayPendingPosition[];
+  summary: {
+    open_count: number;
+    pending_count: number;
+    open_notional: number;
+    pending_notional: number;
+    total_live_pnl: number | null;
+    by_setup: { setup: string; open: number; pending: number; notional: number }[];
+  };
   as_of: string | null;
 }
 
-export async function fetchSwingPositions(): Promise<SwingPositionsData> {
-  const res = await fetch(`${API_BASE}/api/swing/positions`);
-  if (!res.ok) throw new Error("Failed to fetch swing positions");
+export async function fetchMultidayBook(): Promise<MultidayBook> {
+  const res = await fetch(`${API_BASE}/api/multiday/book`);
+  if (!res.ok) throw new Error("Failed to fetch multiday book");
   return res.json();
 }
 

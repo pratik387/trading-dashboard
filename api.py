@@ -70,6 +70,7 @@ from local_reader import LocalDataReader
 from overnight_reader import OvernightReader
 from swing_reader import SwingReader, SWING_SETUPS
 from multiday_positions_reader import MultidayPositionsReader
+import multiday_live_prices
 from overnight_historical_reader import OvernightHistoricalReader
 
 
@@ -982,15 +983,19 @@ async def swing_aggregate(setup: str = "all", date_from: str = None, date_to: st
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/swing/positions")
-async def swing_positions():
-    """The OPEN multi_day book (not-yet-settled positions), grouped by setup.
+@app.get("/api/multiday/book")
+async def multiday_book():
+    """The live multi_day book: open (held, marked-to-market) + pending entries.
 
-    Complements /api/swing/aggregate (settled PnL) — lets the dashboard watch the
-    multi_day positions from entry, before any trade exits/settles.
+    Complements /api/swing/aggregate (settled PnL) — watches positions across the
+    pending -> held -> settled lifecycle. Open positions are marked to the latest
+    price (Upstox), degrading gracefully if a price is unavailable.
     """
     try:
-        return multiday_positions_reader.get_open_positions()
+        book = multiday_positions_reader.get_book()
+        symbols = [p["symbol"] for p in book.get("open", [])]
+        ltps = multiday_live_prices.get_ltps(symbols)
+        return multiday_live_prices.augment_book_with_pnl(book, ltps)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

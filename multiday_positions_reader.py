@@ -1,20 +1,22 @@
-"""MultidayPositionsReader — the OPEN multi-day book (pre-settle), VM-local.
+"""MultidayPositionsReader — the live multi-day book (open + pending), VM-local.
 
-The swing historic page shows SETTLED PnL (pooled decay_tripwire ledgers). That
-view stays empty for a setup until its first trade exits. This reader surfaces the
-live, not-yet-settled positions so the multi_day book is visible from entry — the
-AMO-pending and held positions, with notional, leverage, and the exit date.
+The swing historic page shows SETTLED PnL (pooled decay_tripwire ledgers), which
+stays empty for a setup until its first exit. This reader surfaces the LIVE book
+so positions are visible across their whole lifecycle:
+
+    AMO placed (pending_fill) --next open--> filled/held (2-3 days) --close--> settled
 
 Source: the engine's per-setup position snapshots under the multi_day deployment
-root (the 4 capitulation setups run out of ~/multiday_cnc):
+root (~/multiday_cnc):
 
     state/<x>_slots_positions/positions_snapshot.json
-        -> {"timestamp": ..., "positions": {symbol: {qty, plan.setup, state{...},
-                                                      entry_date, exit_on_date, product}}}
+        -> {"timestamp", "positions": {symbol: {qty, avg_price, plan.setup,
+              state{pending_entry_fill, signal_close, ...}, entry_date, exit_on_date,
+              product}}}
 
-Read-only. Grouped by plan.setup (the full setup name lives on each position), so
-no fragile directory-name mapping. Sibling of SwingReader (settled PnL) and
-OvernightReader (the overnight slot pool).
+get_book() splits positions into `open` (held: pending_entry_fill False, real
+avg_price) and `pending` (awaiting next-open fill). Pure file read — live
+mark-to-market PnL is layered on by multiday_live_prices (needs current prices).
 """
 from __future__ import annotations
 
@@ -23,11 +25,9 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List, Optional
 
-# The multi_day capitulation batch runs out of this engine root on the VM
-# (same convention as SwingReader's MULTIDAY_ENGINE_ROOT).
 try:
     from swing_reader import MULTIDAY_ENGINE_ROOT as _DEFAULT_ROOT
-except Exception:  # pragma: no cover - standalone fallback
+except Exception:  # pragma: no cover
     _DEFAULT_ROOT = Path.home() / "multiday_cnc" / "intraday-trade-assistant"
 
 
@@ -36,21 +36,23 @@ class MultidayPositionsReader:
         self.base_path: Path = Path(base_path) if base_path else _DEFAULT_ROOT
         self.state_dir: Path = self.base_path / "state"
 
-    def get_open_positions(self) -> Dict:
-        """Return the open multi_day positions grouped by setup.
+    def get_book(self) -> Dict:
+        """Live multi-day book split into open (held) and pending (awaiting fill).
 
-        Output:
+        Returns:
             {
-              "positions": [ {setup, symbol, qty, product, leverage, signal_close,
-                              notional, signal_date, entry_date, exit_on_date,
-                              status}, ... ],   # status: "pending_fill" | "held"
-              "by_setup": [ {setup, count, notional}, ... ],  # desc by notional
-              "total_positions": int,
-              "total_notional": float,
+              "open":    [ {setup, symbol, qty, product, leverage, entry_price,
+                            notional, current_price, live_pnl, live_pnl_pct,
+                            entry_date, exit_on_date, signal_date} ],  # current/pnl None
+              "pending": [ {setup, symbol, qty, product, leverage, ref_price,
+                            notional, fills_on, exit_on_date, signal_date} ],
+              "summary": {open_count, pending_count, open_notional, pending_notional,
+                          total_live_pnl (None), by_setup:[{setup, open, pending, notional}]},
               "as_of": <latest snapshot timestamp or None>,
             }
         """
-        rows: List[Dict] = []
+        open_pos: List[Dict] = []
+        pending: List[Dict] = []
         as_of: Optional[str] = None
 
         for snap in sorted(self.state_dir.glob("*_slots_positions/positions_snapshot.json")):
@@ -63,37 +65,57 @@ class MultidayPositionsReader:
                 as_of = str(ts)
             for sym, p in (data.get("positions") or {}).items():
                 st = p.get("state") or {}
+                setup = (p.get("plan") or {}).get("setup", "unknown")
+                symbol = p.get("symbol") or sym
                 qty = int(p.get("qty") or st.get("qty") or 0)
-                signal_close = float(st.get("signal_close") or 0.0)
-                rows.append({
-                    "setup": (p.get("plan") or {}).get("setup", "unknown"),
-                    "symbol": p.get("symbol") or sym,
-                    "qty": qty,
-                    "product": p.get("product"),
-                    "leverage": st.get("leverage"),
-                    "signal_close": signal_close,
-                    "notional": round(qty * signal_close, 2),
-                    "signal_date": st.get("signal_date"),
-                    "entry_date": p.get("entry_date"),
-                    "exit_on_date": p.get("exit_on_date"),
-                    "status": "pending_fill" if st.get("pending_entry_fill") else "held",
-                })
+                product = p.get("product")
+                leverage = st.get("leverage")
+                if st.get("pending_entry_fill"):
+                    ref = float(st.get("signal_close") or 0.0)
+                    pending.append({
+                        "setup": setup, "symbol": symbol, "qty": qty,
+                        "product": product, "leverage": leverage,
+                        "ref_price": ref, "notional": round(qty * ref, 2),
+                        "fills_on": p.get("entry_date"),
+                        "exit_on_date": p.get("exit_on_date"),
+                        "signal_date": st.get("signal_date"),
+                    })
+                else:
+                    entry = float(p.get("avg_price") or st.get("entry_fill_price") or 0.0)
+                    open_pos.append({
+                        "setup": setup, "symbol": symbol, "qty": qty,
+                        "product": product, "leverage": leverage,
+                        "entry_price": entry, "notional": round(qty * entry, 2),
+                        "current_price": None, "live_pnl": None, "live_pnl_pct": None,
+                        "entry_date": p.get("entry_date"),
+                        "exit_on_date": p.get("exit_on_date"),
+                        "signal_date": st.get("signal_date"),
+                    })
 
-        rows.sort(key=lambda r: (r["setup"], -r["notional"]))
+        open_pos.sort(key=lambda r: (r["setup"], -r["notional"]))
+        pending.sort(key=lambda r: (r["setup"], -r["notional"]))
 
-        bs: Dict[str, Dict] = defaultdict(lambda: {"count": 0, "notional": 0.0})
-        for r in rows:
-            b = bs[r["setup"]]
-            b["count"] += 1
-            b["notional"] += r["notional"]
-        by_setup = [{"setup": s, "count": b["count"], "notional": round(b["notional"], 2)}
-                    for s, b in bs.items()]
+        bs: Dict[str, Dict] = defaultdict(lambda: {"open": 0, "pending": 0, "notional": 0.0})
+        for r in open_pos:
+            bs[r["setup"]]["open"] += 1
+            bs[r["setup"]]["notional"] += r["notional"]
+        for r in pending:
+            bs[r["setup"]]["pending"] += 1
+            bs[r["setup"]]["notional"] += r["notional"]
+        by_setup = [{"setup": s, "open": b["open"], "pending": b["pending"],
+                     "notional": round(b["notional"], 2)} for s, b in bs.items()]
         by_setup.sort(key=lambda x: x["notional"], reverse=True)
 
         return {
-            "positions": rows,
-            "by_setup": by_setup,
-            "total_positions": len(rows),
-            "total_notional": round(sum(r["notional"] for r in rows), 2),
+            "open": open_pos,
+            "pending": pending,
+            "summary": {
+                "open_count": len(open_pos),
+                "pending_count": len(pending),
+                "open_notional": round(sum(r["notional"] for r in open_pos), 2),
+                "pending_notional": round(sum(r["notional"] for r in pending), 2),
+                "total_live_pnl": None,  # set by price augmentation
+                "by_setup": by_setup,
+            },
             "as_of": as_of,
         }

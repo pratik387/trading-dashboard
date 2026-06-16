@@ -1,13 +1,10 @@
-"""Unit tests for MultidayPositionsReader — the OPEN multiday book (pre-settle).
+"""Unit tests for MultidayPositionsReader.get_book() — the live multi-day book.
 
-The swing historic page shows SETTLED PnL (from decay_tripwire ledgers). This
-reader surfaces the live, not-yet-settled positions for the 4 multi_day setups,
-read from the engine's per-setup position snapshots:
+Splits the per-setup position snapshots into:
+  - open    (held/filled: state.pending_entry_fill == False, real avg_price)
+  - pending (AMO placed, awaiting next-open fill: pending_entry_fill == True)
 
-    state/<x>_slots_positions/positions_snapshot.json -> {"positions": {sym: {...}}}
-
-Positions are grouped by their plan.setup (the full setup name), with pending-fill
-vs held status and notional, so the dashboard can watch the book before exits land.
+Pure file read — live mark-to-market PnL is layered on separately (needs prices).
 """
 import json
 import sys
@@ -19,7 +16,7 @@ sys.path.insert(0, str(ROOT))
 from multiday_positions_reader import MultidayPositionsReader
 
 
-def _snapshot(base: Path, dirname: str, positions: dict, ts: str = "2026-06-16T16:07:00"):
+def _snapshot(base: Path, dirname: str, positions: dict, ts="2026-06-17T16:07:00"):
     d = base / "state" / dirname
     d.mkdir(parents=True, exist_ok=True)
     (d / "positions_snapshot.json").write_text(
@@ -27,58 +24,55 @@ def _snapshot(base: Path, dirname: str, positions: dict, ts: str = "2026-06-16T1
     )
 
 
-def _pos(setup, qty, signal_close, *, pending=True, signal_date="2026-06-16",
-         entry_date="2026-06-17", exit_on="2026-06-19", product="MTF", leverage=2.0):
+def _pos(setup, qty, *, pending, avg_price=0.0, signal_close=100.0,
+         entry_date="2026-06-17", exit_on="2026-06-19", product="MTF", leverage=2.0,
+         signal_date="2026-06-16"):
     return {
-        "symbol": "", "side": "BUY", "qty": qty, "avg_price": 0.0,
-        "plan": {"setup": setup, "trail_ret": -0.04, "tshock": 5.9},
+        "symbol": "", "side": "BUY", "qty": qty, "avg_price": avg_price,
+        "plan": {"setup": setup},
         "state": {"pending_entry_fill": pending, "qty": qty, "leverage": leverage,
-                  "signal_close": signal_close, "signal_date": signal_date},
+                  "signal_close": signal_close, "signal_date": signal_date,
+                  "entry_fill_price": (avg_price if not pending else None)},
         "entry_date": entry_date, "exit_on_date": exit_on, "product": product,
     }
 
 
-def test_reads_and_groups_open_positions(tmp_path):
+def test_splits_open_and_pending(tmp_path):
     _snapshot(tmp_path, "mtf_capitulation_slots_positions", {
-        "NSE:SANATHAN": {**_pos("mtf_capitulation_revert_long", 495, 403.25), "symbol": "NSE:SANATHAN"},
+        # filled/held — has a real avg_price
+        "NSE:SANATHAN": {**_pos("mtf_capitulation_revert_long", 100, pending=False,
+                                 avg_price=400.0, signal_close=403.25), "symbol": "NSE:SANATHAN"},
     })
     _snapshot(tmp_path, "crash2d_slots_positions", {
-        "NSE:RAMASTEEL": {**_pos("crash2d_revert_long", 100, 200.0), "symbol": "NSE:RAMASTEEL"},
-        "NSE:AMRUTANJAN": {**_pos("crash2d_revert_long", 50, 600.0, pending=False), "symbol": "NSE:AMRUTANJAN"},
+        # pending — not yet filled
+        "NSE:RAMASTEEL": {**_pos("crash2d_revert_long", 50, pending=True,
+                                 signal_close=200.0), "symbol": "NSE:RAMASTEEL"},
     })
-    out = MultidayPositionsReader(tmp_path).get_open_positions()
-    assert out["total_positions"] == 3
-    by = {b["setup"]: b for b in out["by_setup"]}
-    assert by["crash2d_revert_long"]["count"] == 2
-    assert by["mtf_capitulation_revert_long"]["count"] == 1
-    # notional = qty * signal_close
-    sanathan = next(p for p in out["positions"] if p["symbol"] == "NSE:SANATHAN")
-    assert sanathan["notional"] == round(495 * 403.25, 2)
-    assert sanathan["product"] == "MTF" and sanathan["leverage"] == 2.0
-    assert sanathan["status"] == "pending_fill"
-    assert sanathan["entry_date"] == "2026-06-17" and sanathan["exit_on_date"] == "2026-06-19"
-    held = next(p for p in out["positions"] if p["symbol"] == "NSE:AMRUTANJAN")
-    assert held["status"] == "held"
+    b = MultidayPositionsReader(tmp_path).get_book()
+    assert len(b["open"]) == 1 and len(b["pending"]) == 1
+    o = b["open"][0]
+    assert o["symbol"] == "NSE:SANATHAN" and o["entry_price"] == 400.0
+    assert o["notional"] == round(400.0 * 100, 2)        # cost basis
+    assert o["current_price"] is None and o["live_pnl"] is None  # not augmented yet
+    p = b["pending"][0]
+    assert p["symbol"] == "NSE:RAMASTEEL" and p["ref_price"] == 200.0
+    assert p["notional"] == round(200.0 * 50, 2)
+    assert p["fills_on"] == "2026-06-17"
 
 
-def test_total_notional_and_setup_breakdown(tmp_path):
+def test_summary_counts_and_notional(tmp_path):
     _snapshot(tmp_path, "crash2d_slots_positions", {
-        "NSE:A": {**_pos("crash2d_revert_long", 10, 100.0), "symbol": "NSE:A"},
-        "NSE:B": {**_pos("crash2d_revert_long", 20, 50.0), "symbol": "NSE:B"},
+        "NSE:A": {**_pos("crash2d_revert_long", 10, pending=False, avg_price=100.0), "symbol": "NSE:A"},
+        "NSE:B": {**_pos("crash2d_revert_long", 20, pending=True, signal_close=50.0), "symbol": "NSE:B"},
     })
-    out = MultidayPositionsReader(tmp_path).get_open_positions()
-    assert out["total_notional"] == round(10 * 100 + 20 * 50, 2)  # 2000
-    assert out["by_setup"][0]["notional"] == 2000.0
+    s = MultidayPositionsReader(tmp_path).get_book()["summary"]
+    assert s["open_count"] == 1 and s["pending_count"] == 1
+    assert s["open_notional"] == 1000.0 and s["pending_notional"] == 1000.0
+    assert s["total_live_pnl"] is None  # populated only after price augmentation
+    by = {x["setup"]: x for x in s["by_setup"]}
+    assert by["crash2d_revert_long"]["open"] == 1 and by["crash2d_revert_long"]["pending"] == 1
 
 
 def test_empty_when_no_snapshots(tmp_path):
-    out = MultidayPositionsReader(tmp_path).get_open_positions()
-    assert out["total_positions"] == 0
-    assert out["positions"] == [] and out["by_setup"] == []
-    assert out["total_notional"] == 0
-
-
-def test_ignores_empty_positions_dict(tmp_path):
-    _snapshot(tmp_path, "mtf_capitulation_slots_positions", {})
-    out = MultidayPositionsReader(tmp_path).get_open_positions()
-    assert out["total_positions"] == 0
+    b = MultidayPositionsReader(tmp_path).get_book()
+    assert b["open"] == [] and b["pending"] == [] and b["summary"]["open_count"] == 0
