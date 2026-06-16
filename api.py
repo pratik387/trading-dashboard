@@ -68,6 +68,7 @@ from pathlib import Path
 from oci_reader import OCIDataReader
 from local_reader import LocalDataReader
 from overnight_reader import OvernightReader
+from swing_reader import SwingReader, SWING_SETUPS
 from overnight_historical_reader import OvernightHistoricalReader
 
 
@@ -92,6 +93,7 @@ DEFAULT_INSTANCES = {
 # initialized on first use because it requires the OCI client (heavier
 # than the local-file reader).
 overnight_reader = OvernightReader()
+swing_reader = SwingReader()
 overnight_historical_reader: Optional[OvernightHistoricalReader] = None
 
 
@@ -950,6 +952,30 @@ async def overnight_history_log(archive_date: str, cron: str):
         return result
     except HTTPException:
         raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============ Swing family (delivery / multi-day book) ============
+# Pools the per-setup PnL ledgers (close_dn_overnight_long + the multi_day
+# capitulation batch) into the same AggregateData shape the historic page
+# renders for intraday, so the page reuses its tabs + charts. See swing_reader.py.
+
+@app.get("/api/swing/setups")
+async def swing_setups():
+    """The swing/delivery setups available for the historic-page filter."""
+    return {"setups": SWING_SETUPS}
+
+
+@app.get("/api/swing/aggregate")
+async def swing_aggregate(setup: str = "all", date_from: str = None, date_to: str = None):
+    """Pooled swing-book performance (AggregateData shape).
+
+    `setup="all"` pools every swing setup; otherwise a single setup. Optional
+    inclusive YYYY-MM-DD date bounds on the settle date.
+    """
+    try:
+        return swing_reader.get_aggregate(setup=setup, date_from=date_from, date_to=date_to)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

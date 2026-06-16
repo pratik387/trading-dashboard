@@ -10,6 +10,8 @@ import {
   SetupStats,
   DailyData,
   fetchAggregate,
+  fetchSwingAggregate,
+  SWING_SETUPS,
 } from "@/lib/api";
 import { History, RefreshCw, TrendingUp, Target, Calendar, BarChart3 } from "lucide-react";
 
@@ -46,9 +48,22 @@ const PnLHistogramChart = dynamic(
 
 type TabType = "overview" | "setups" | "daily" | "trades";
 type ConfigType = "fixed" | "live";
+type Family = "intraday" | "swing";
+
+// Pretty labels for the swing setups in the filter.
+const SWING_LABELS: Record<string, string> = {
+  all: "All (pooled book)",
+  close_dn_overnight_long: "close_dn (overnight)",
+  mtf_capitulation_revert_long: "mtf_capitulation",
+  low52_capitulation_revert_long: "low52",
+  zscore_oversold_revert_long: "zscore",
+  crash2d_revert_long: "crash2d",
+};
 
 export default function HistoricalPage() {
+  const [family, setFamily] = useState<Family>("intraday");
   const [configType, setConfigType] = useState<ConfigType>("fixed");
+  const [swingSetup, setSwingSetup] = useState<string>("all");
   const [data, setData] = useState<AggregateData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -59,11 +74,11 @@ export default function HistoricalPage() {
   const loadData = async (resetFilters = false) => {
     try {
       setLoading(true);
-      const result = await fetchAggregate(
-        configType,
-        resetFilters ? undefined : dateFrom || undefined,
-        resetFilters ? undefined : dateTo || undefined
-      );
+      const from = resetFilters ? undefined : dateFrom || undefined;
+      const to = resetFilters ? undefined : dateTo || undefined;
+      const result = family === "swing"
+        ? await fetchSwingAggregate(swingSetup, from, to)
+        : await fetchAggregate(configType, from, to);
       setData(result);
       setError(null);
 
@@ -81,7 +96,7 @@ export default function HistoricalPage() {
 
   useEffect(() => {
     loadData(true);
-  }, [configType]);
+  }, [configType, family, swingSetup]);
 
   const handleDateFilter = () => {
     loadData();
@@ -118,14 +133,45 @@ export default function HistoricalPage() {
         </div>
 
         <div className="flex items-center gap-3 flex-wrap">
-          <select
-            value={configType}
-            onChange={(e) => setConfigType(e.target.value as ConfigType)}
-            className="text-sm border rounded-lg px-3 py-2 bg-white dark:bg-gray-800 font-medium"
-          >
-            <option value="fixed">Fixed (5L)</option>
-            <option value="live">Live</option>
-          </select>
+          {/* Family: Intraday (MIS, same-day) vs Swing (delivery / multi-day book) */}
+          <div className="inline-flex rounded-lg border overflow-hidden text-sm font-medium">
+            {(["intraday", "swing"] as Family[]).map((f) => (
+              <button
+                key={f}
+                onClick={() => setFamily(f)}
+                className={`px-3 py-2 capitalize ${
+                  family === f
+                    ? "bg-blue-600 text-white"
+                    : "bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300"
+                }`}
+              >
+                {f}
+              </button>
+            ))}
+          </div>
+          {family === "intraday" ? (
+            <select
+              value={configType}
+              onChange={(e) => setConfigType(e.target.value as ConfigType)}
+              className="text-sm border rounded-lg px-3 py-2 bg-white dark:bg-gray-800 font-medium"
+            >
+              <option value="fixed">Fixed (5L)</option>
+              <option value="live">Live</option>
+            </select>
+          ) : (
+            <select
+              value={swingSetup}
+              onChange={(e) => setSwingSetup(e.target.value)}
+              className="text-sm border rounded-lg px-3 py-2 bg-white dark:bg-gray-800 font-medium"
+            >
+              <option value="all">{SWING_LABELS.all}</option>
+              {SWING_SETUPS.map((s) => (
+                <option key={s} value={s}>
+                  {SWING_LABELS[s] ?? s}
+                </option>
+              ))}
+            </select>
+          )}
           <input
             type="date"
             value={dateFrom}

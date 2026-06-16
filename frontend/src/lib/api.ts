@@ -200,6 +200,30 @@ export async function fetchAggregate(
   return res.json();
 }
 
+// Swing / delivery family (close_dn_overnight_long + the multi-day capitulation
+// batch). Pooled per-setup PnL ledgers in the same AggregateData shape as intraday.
+export const SWING_SETUPS = [
+  "close_dn_overnight_long",
+  "mtf_capitulation_revert_long",
+  "low52_capitulation_revert_long",
+  "zscore_oversold_revert_long",
+  "crash2d_revert_long",
+] as const;
+
+export async function fetchSwingAggregate(
+  setup: string = "all",
+  dateFrom?: string,
+  dateTo?: string
+): Promise<AggregateData> {
+  const params = new URLSearchParams();
+  params.append("setup", setup);
+  if (dateFrom) params.append("date_from", dateFrom);
+  if (dateTo) params.append("date_to", dateTo);
+  const res = await fetch(`${API_BASE}/api/swing/aggregate?${params.toString()}`);
+  if (!res.ok) throw new Error("Failed to fetch swing aggregate data");
+  return res.json();
+}
+
 // ============ Instance APIs (real-time from engine health servers) ============
 
 export interface Instance {
