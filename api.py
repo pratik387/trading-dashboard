@@ -69,6 +69,7 @@ from oci_reader import OCIDataReader
 from local_reader import LocalDataReader
 from overnight_reader import OvernightReader
 from swing_reader import SwingReader, SWING_SETUPS
+from multiday_positions_reader import MultidayPositionsReader
 from overnight_historical_reader import OvernightHistoricalReader
 
 
@@ -94,6 +95,7 @@ DEFAULT_INSTANCES = {
 # than the local-file reader).
 overnight_reader = OvernightReader()
 swing_reader = SwingReader()
+multiday_positions_reader = MultidayPositionsReader()
 overnight_historical_reader: Optional[OvernightHistoricalReader] = None
 
 
@@ -976,6 +978,19 @@ async def swing_aggregate(setup: str = "all", date_from: str = None, date_to: st
     """
     try:
         return swing_reader.get_aggregate(setup=setup, date_from=date_from, date_to=date_to)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/swing/positions")
+async def swing_positions():
+    """The OPEN multi_day book (not-yet-settled positions), grouped by setup.
+
+    Complements /api/swing/aggregate (settled PnL) — lets the dashboard watch the
+    multi_day positions from entry, before any trade exits/settles.
+    """
+    try:
+        return multiday_positions_reader.get_open_positions()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

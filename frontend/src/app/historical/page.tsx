@@ -11,6 +11,8 @@ import {
   DailyData,
   fetchAggregate,
   fetchSwingAggregate,
+  fetchSwingPositions,
+  SwingPositionsData,
   SWING_SETUPS,
 } from "@/lib/api";
 import { History, RefreshCw, TrendingUp, Target, Calendar, BarChart3 } from "lucide-react";
@@ -70,6 +72,8 @@ export default function HistoricalPage() {
   const [activeTab, setActiveTab] = useState<TabType>("overview");
   const [dateFrom, setDateFrom] = useState<string>("");
   const [dateTo, setDateTo] = useState<string>("");
+  // Open (not-yet-settled) multi_day book — only loaded in the Swing family.
+  const [swingPositions, setSwingPositions] = useState<SwingPositionsData | null>(null);
 
   const loadData = async (resetFilters = false) => {
     try {
@@ -97,6 +101,16 @@ export default function HistoricalPage() {
   useEffect(() => {
     loadData(true);
   }, [configType, family, swingSetup]);
+
+  // The open multi_day book is independent of the date filter / setup selector —
+  // load it whenever the Swing family is active.
+  useEffect(() => {
+    if (family !== "swing") {
+      setSwingPositions(null);
+      return;
+    }
+    fetchSwingPositions().then(setSwingPositions).catch(() => setSwingPositions(null));
+  }, [family]);
 
   const handleDateFilter = () => {
     loadData();
@@ -204,6 +218,75 @@ export default function HistoricalPage() {
           </button>
         </div>
       </div>
+
+      {/* Open multi-day book (Swing family only) — live positions before they settle */}
+      {family === "swing" && (
+        <section className="rounded-lg border bg-white dark:bg-gray-800 shadow-sm">
+          <div className="flex items-center justify-between px-4 py-3 border-b">
+            <h3 className="text-md font-semibold flex items-center gap-2">
+              <Target className="w-4 h-4" /> Open Multi-Day Book
+              <span className="text-xs font-normal text-gray-500">
+                (live positions — appear from entry until they settle)
+              </span>
+            </h3>
+            {swingPositions && swingPositions.total_positions > 0 && (
+              <div className="text-sm text-gray-600 dark:text-gray-300">
+                {swingPositions.total_positions} open · {formatINR(swingPositions.total_notional)} notional
+                {swingPositions.as_of && (
+                  <span className="ml-2 text-xs text-gray-400">as of {swingPositions.as_of.slice(0, 16).replace("T", " ")}</span>
+                )}
+              </div>
+            )}
+          </div>
+          {!swingPositions || swingPositions.total_positions === 0 ? (
+            <div className="px-4 py-6 text-sm text-gray-500">
+              No open multi-day positions right now. New entries show here the moment they&apos;re placed,
+              and drop off once they exit (then appear in the settled tabs above).
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 dark:bg-gray-900 text-left">
+                  <tr>
+                    <th className="px-4 py-2 font-medium">Setup</th>
+                    <th className="px-4 py-2 font-medium">Symbol</th>
+                    <th className="px-4 py-2 text-right font-medium">Qty</th>
+                    <th className="px-4 py-2 font-medium">Product</th>
+                    <th className="px-4 py-2 text-right font-medium">Ref Px</th>
+                    <th className="px-4 py-2 text-right font-medium">Notional</th>
+                    <th className="px-4 py-2 font-medium">Entry</th>
+                    <th className="px-4 py-2 font-medium">Exit by</th>
+                    <th className="px-4 py-2 font-medium">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                  {swingPositions.positions.map((p, idx) => (
+                    <tr key={`${p.setup}-${p.symbol}-${idx}`} className="hover:bg-gray-50 dark:hover:bg-gray-900">
+                      <td className="px-4 py-2">{SWING_LABELS[p.setup] ?? p.setup}</td>
+                      <td className="px-4 py-2 font-medium">{p.symbol}</td>
+                      <td className="px-4 py-2 text-right">{p.qty}</td>
+                      <td className="px-4 py-2">{p.product ?? "—"}{p.leverage && p.leverage > 1 ? ` ${p.leverage}×` : ""}</td>
+                      <td className="px-4 py-2 text-right">{p.signal_close ? formatINR(p.signal_close) : "—"}</td>
+                      <td className="px-4 py-2 text-right">{formatINR(p.notional)}</td>
+                      <td className="px-4 py-2">{p.entry_date ?? "—"}</td>
+                      <td className="px-4 py-2">{p.exit_on_date ?? "—"}</td>
+                      <td className="px-4 py-2">
+                        <span className={`px-2 py-0.5 rounded-full text-xs ${
+                          p.status === "pending_fill"
+                            ? "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300"
+                            : "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300"
+                        }`}>
+                          {p.status === "pending_fill" ? "pending fill" : "held"}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      )}
 
       {/* Tabs */}
       <div className="border-b">

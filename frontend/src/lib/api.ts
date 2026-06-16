@@ -224,6 +224,35 @@ export async function fetchSwingAggregate(
   return res.json();
 }
 
+// Open (not-yet-settled) multi_day positions — the live book before exits settle.
+export interface SwingPosition {
+  setup: string;
+  symbol: string;
+  qty: number;
+  product: string | null;
+  leverage: number | null;
+  signal_close: number;
+  notional: number;
+  signal_date: string | null;
+  entry_date: string | null;
+  exit_on_date: string | null;
+  status: "pending_fill" | "held";
+}
+
+export interface SwingPositionsData {
+  positions: SwingPosition[];
+  by_setup: { setup: string; count: number; notional: number }[];
+  total_positions: number;
+  total_notional: number;
+  as_of: string | null;
+}
+
+export async function fetchSwingPositions(): Promise<SwingPositionsData> {
+  const res = await fetch(`${API_BASE}/api/swing/positions`);
+  if (!res.ok) throw new Error("Failed to fetch swing positions");
+  return res.json();
+}
+
 // ============ Instance APIs (real-time from engine health servers) ============
 
 export interface Instance {
