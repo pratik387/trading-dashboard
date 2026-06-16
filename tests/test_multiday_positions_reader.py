@@ -52,11 +52,12 @@ def test_splits_open_and_pending(tmp_path):
     assert len(b["open"]) == 1 and len(b["pending"]) == 1
     o = b["open"][0]
     assert o["symbol"] == "NSE:SANATHAN" and o["entry_price"] == 400.0
-    assert o["notional"] == round(400.0 * 100, 2)        # cost basis
+    # capital = actual money = value / leverage (2x MTF), NOT leveraged notional
+    assert o["capital"] == round(400.0 * 100 / 2.0, 2)   # 20000
     assert o["current_price"] is None and o["live_pnl"] is None  # not augmented yet
     p = b["pending"][0]
     assert p["symbol"] == "NSE:RAMASTEEL" and p["ref_price"] == 200.0
-    assert p["notional"] == round(200.0 * 50, 2)
+    assert p["capital"] == round(200.0 * 50 / 2.0, 2)    # 5000
     assert p["fills_on"] == "2026-06-17"
 
 
@@ -67,7 +68,8 @@ def test_summary_counts_and_notional(tmp_path):
     })
     s = MultidayPositionsReader(tmp_path).get_book()["summary"]
     assert s["open_count"] == 1 and s["pending_count"] == 1
-    assert s["open_notional"] == 1000.0 and s["pending_notional"] == 1000.0
+    # capital = value/leverage (2x): open 100*10/2=500, pending 50*20/2=500
+    assert s["open_capital"] == 500.0 and s["pending_capital"] == 500.0
     assert s["total_live_pnl"] is None  # populated only after price augmentation
     by = {x["setup"]: x for x in s["by_setup"]}
     assert by["crash2d_revert_long"]["open"] == 1 and by["crash2d_revert_long"]["pending"] == 1

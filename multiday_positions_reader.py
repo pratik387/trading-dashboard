@@ -42,12 +42,13 @@ class MultidayPositionsReader:
         Returns:
             {
               "open":    [ {setup, symbol, qty, product, leverage, entry_price,
-                            notional, current_price, live_pnl, live_pnl_pct,
+                            capital, current_price, live_pnl, live_pnl_pct,
                             entry_date, exit_on_date, signal_date} ],  # current/pnl None
               "pending": [ {setup, symbol, qty, product, leverage, ref_price,
-                            notional, fills_on, exit_on_date, signal_date} ],
-              "summary": {open_count, pending_count, open_notional, pending_notional,
-                          total_live_pnl (None), by_setup:[{setup, open, pending, notional}]},
+                            capital, fills_on, exit_on_date, signal_date} ],
+              "summary": {open_count, pending_count, open_capital, pending_capital,
+                          total_live_pnl (None), by_setup:[{setup, open, pending, capital}]},
+            capital = actual money deployed (value / leverage), NOT leveraged notional.
               "as_of": <latest snapshot timestamp or None>,
             }
         """
@@ -70,12 +71,17 @@ class MultidayPositionsReader:
                 qty = int(p.get("qty") or st.get("qty") or 0)
                 product = p.get("product")
                 leverage = st.get("leverage")
+                # Capital = ACTUAL money deployed = position value / leverage. For
+                # MTF (leverage>1) this is the margin put up, NOT the leveraged
+                # notional exposure; for CNC (leverage 1) it's the full cash.
+                lev = float(leverage) if leverage else 1.0
+                lev = lev if lev > 0 else 1.0
                 if st.get("pending_entry_fill"):
                     ref = float(st.get("signal_close") or 0.0)
                     pending.append({
                         "setup": setup, "symbol": symbol, "qty": qty,
                         "product": product, "leverage": leverage,
-                        "ref_price": ref, "notional": round(qty * ref, 2),
+                        "ref_price": ref, "capital": round(qty * ref / lev, 2),
                         "fills_on": p.get("entry_date"),
                         "exit_on_date": p.get("exit_on_date"),
                         "signal_date": st.get("signal_date"),
@@ -85,26 +91,26 @@ class MultidayPositionsReader:
                     open_pos.append({
                         "setup": setup, "symbol": symbol, "qty": qty,
                         "product": product, "leverage": leverage,
-                        "entry_price": entry, "notional": round(qty * entry, 2),
+                        "entry_price": entry, "capital": round(qty * entry / lev, 2),
                         "current_price": None, "live_pnl": None, "live_pnl_pct": None,
                         "entry_date": p.get("entry_date"),
                         "exit_on_date": p.get("exit_on_date"),
                         "signal_date": st.get("signal_date"),
                     })
 
-        open_pos.sort(key=lambda r: (r["setup"], -r["notional"]))
-        pending.sort(key=lambda r: (r["setup"], -r["notional"]))
+        open_pos.sort(key=lambda r: (r["setup"], -r["capital"]))
+        pending.sort(key=lambda r: (r["setup"], -r["capital"]))
 
-        bs: Dict[str, Dict] = defaultdict(lambda: {"open": 0, "pending": 0, "notional": 0.0})
+        bs: Dict[str, Dict] = defaultdict(lambda: {"open": 0, "pending": 0, "capital": 0.0})
         for r in open_pos:
             bs[r["setup"]]["open"] += 1
-            bs[r["setup"]]["notional"] += r["notional"]
+            bs[r["setup"]]["capital"] += r["capital"]
         for r in pending:
             bs[r["setup"]]["pending"] += 1
-            bs[r["setup"]]["notional"] += r["notional"]
+            bs[r["setup"]]["capital"] += r["capital"]
         by_setup = [{"setup": s, "open": b["open"], "pending": b["pending"],
-                     "notional": round(b["notional"], 2)} for s, b in bs.items()]
-        by_setup.sort(key=lambda x: x["notional"], reverse=True)
+                     "capital": round(b["capital"], 2)} for s, b in bs.items()]
+        by_setup.sort(key=lambda x: x["capital"], reverse=True)
 
         return {
             "open": open_pos,
@@ -112,8 +118,8 @@ class MultidayPositionsReader:
             "summary": {
                 "open_count": len(open_pos),
                 "pending_count": len(pending),
-                "open_notional": round(sum(r["notional"] for r in open_pos), 2),
-                "pending_notional": round(sum(r["notional"] for r in pending), 2),
+                "open_capital": round(sum(r["capital"] for r in open_pos), 2),
+                "pending_capital": round(sum(r["capital"] for r in pending), 2),
                 "total_live_pnl": None,  # set by price augmentation
                 "by_setup": by_setup,
             },

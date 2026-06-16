@@ -232,7 +232,7 @@ export interface MultidayOpenPosition {
   product: string | null;
   leverage: number | null;
   entry_price: number;
-  notional: number;
+  capital: number; // actual money deployed (value / leverage), not leveraged notional
   current_price: number | null;
   live_pnl: number | null;
   live_pnl_pct: number | null;
@@ -248,7 +248,7 @@ export interface MultidayPendingPosition {
   product: string | null;
   leverage: number | null;
   ref_price: number;
-  notional: number;
+  capital: number; // actual money deployed (value / leverage)
   fills_on: string | null;
   exit_on_date: string | null;
   signal_date: string | null;
@@ -260,10 +260,10 @@ export interface MultidayBook {
   summary: {
     open_count: number;
     pending_count: number;
-    open_notional: number;
-    pending_notional: number;
+    open_capital: number;
+    pending_capital: number;
     total_live_pnl: number | null;
-    by_setup: { setup: string; open: number; pending: number; notional: number }[];
+    by_setup: { setup: string; open: number; pending: number; capital: number }[];
   };
   as_of: string | null;
 }

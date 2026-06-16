@@ -89,16 +89,15 @@ export default function MultidayPage() {
 
       {/* Summary */}
       {s && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <MetricCard
             label="Live PnL (open)"
             value={pnl == null ? "—" : formatINR(pnl)}
             delta={pnl == null ? undefined : pnl >= 0 ? "up" : "down"}
             help="Mark-to-market on held positions (latest price − entry) × qty. '—' if prices unavailable."
           />
-          <MetricCard label="Open positions" value={String(s.open_count)} subValue={`${formatINR(s.open_notional)} notional`} />
-          <MetricCard label="Pending entries" value={String(s.pending_count)} subValue={`${formatINR(s.pending_notional)} est.`} />
-          <MetricCard label="Setups active" value={String(s.by_setup.length)} subValue={s.by_setup.map((x) => lbl(x.setup)).join(", ") || "—"} />
+          <MetricCard label="Open positions" value={String(s.open_count)} subValue={`${formatINR(s.open_capital)} capital`} />
+          <MetricCard label="Pending entries" value={String(s.pending_count)} subValue={`${formatINR(s.pending_capital)} capital`} />
         </div>
       )}
 
@@ -174,7 +173,7 @@ export default function MultidayPage() {
                   <th className="py-2 pr-3 text-right">Ref Px</th>
                   <th className="py-2 pr-3 text-right">Qty</th>
                   <th className="py-2 pr-3">Product</th>
-                  <th className="py-2 pr-3 text-right">Est. Notional</th>
+                  <th className="py-2 pr-3 text-right">Capital</th>
                   <th className="py-2 pr-3">Fills on</th>
                   <th className="py-2 pr-3">Exit by</th>
                 </tr>
@@ -187,7 +186,7 @@ export default function MultidayPage() {
                     <td className="py-2 pr-3 text-right tabular-nums">{p.ref_price ? `₹${p.ref_price.toFixed(2)}` : "—"}</td>
                     <td className="py-2 pr-3 text-right tabular-nums text-gray-600">{p.qty.toLocaleString()}</td>
                     <td className="py-2 pr-3 text-xs text-gray-600 dark:text-gray-400">{p.product ?? "—"}{p.leverage && p.leverage > 1 ? ` ${p.leverage}×` : ""}</td>
-                    <td className="py-2 pr-3 text-right tabular-nums text-gray-600">{formatINR(p.notional)}</td>
+                    <td className="py-2 pr-3 text-right tabular-nums text-gray-600">{formatINR(p.capital)}</td>
                     <td className="py-2 pr-3 text-xs text-gray-500">{p.fills_on ?? "—"}</td>
                     <td className="py-2 pr-3 text-xs text-gray-500">{p.exit_on_date ?? "—"}</td>
                   </tr>
