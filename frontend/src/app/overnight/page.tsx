@@ -16,6 +16,8 @@ import {
   fetchOvernightHistoryPool,
   fetchOvernightHistoryLedger,
   fetchOvernightHistorySummary,
+  fetchSwingPositions,
+  SwingPositionsData,
 } from "@/lib/api";
 import {
   Moon,
@@ -35,6 +37,9 @@ export default function OvernightPage() {
   const [ledger, setLedger] = useState<OvernightLedger | null>(null);
   const [summary, setSummary] = useState<OvernightSummary | null>(null);
   const [cron, setCron] = useState<OvernightCronHealth | null>(null);
+  // The open multi_day capitulation book (2-3 day holds) — live only, sibling of
+  // the overnight slot pool. No per-date archive, so it's null in archive mode.
+  const [multiday, setMultiday] = useState<SwingPositionsData | null>(null);
   const [archivedDates, setArchivedDates] = useState<string[]>([]);
   const [selectedDate, setSelectedDate] = useState<string>(LIVE_MODE);
   const [loading, setLoading] = useState(true);
@@ -57,6 +62,8 @@ export default function OvernightPage() {
         setLedger(l);
         setSummary(s);
         setCron(ch);
+        // Decoupled from the overnight load — a multiday hiccup must not break this view.
+        fetchSwingPositions().then(setMultiday).catch(() => setMultiday(null));
       } else {
         const [p, l, s] = await Promise.all([
           fetchOvernightHistoryPool(selectedDate),
@@ -67,6 +74,7 @@ export default function OvernightPage() {
         setLedger(l);
         setSummary(s);
         setCron(null); // cron-health isn't archived; only meaningful live
+        setMultiday(null); // no per-date multiday archive
       }
       setError(null);
       setLastLoaded(new Date().toLocaleTimeString());
@@ -235,8 +243,95 @@ export default function OvernightPage() {
       {/* Panel 1b: Closed today (t1_settling — sold today, awaiting T+1 settle) */}
       {pool && <ClosedTodayPanel pool={pool} />}
 
+      {/* Panel 1c: Multi-day capitulation book (2-3 day holds) — live only */}
+      {isLive && <MultidayBookPanel data={multiday} />}
+
       {/* Panel 2: Trade ledger */}
       {ledger && summary && <LedgerPanel ledger={ledger} dailyBreakdown={summary.daily_breakdown} />}
+    </div>
+  );
+}
+
+// ─── Panel 1c: Multi-day capitulation book (open positions, pre-settle) ─
+
+const MULTIDAY_LABELS: Record<string, string> = {
+  mtf_capitulation_revert_long: "mtf",
+  low52_capitulation_revert_long: "low52",
+  zscore_oversold_revert_long: "zscore",
+  crash2d_revert_long: "crash2d",
+};
+
+function MultidayBookPanel({ data }: { data: SwingPositionsData | null }) {
+  const positions = data?.positions ?? [];
+
+  return (
+    <div className="rounded-lg border bg-white dark:bg-gray-900 p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <h2 className="font-semibold flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-indigo-500"></span>
+          Multi-Day Book
+          <span className="text-xs font-normal text-gray-500">
+            (capitulation setups · 2-3 day holds · {positions.length} open)
+          </span>
+        </h2>
+        {data && data.total_positions > 0 && (
+          <span className="text-xs text-gray-500">
+            {formatINR(data.total_notional)} notional
+            {data.as_of && ` · as of ${data.as_of.replace("T", " ").slice(0, 16)}`}
+          </span>
+        )}
+      </div>
+
+      {positions.length === 0 ? (
+        <div className="text-sm text-gray-500 py-6 text-center">
+          No open multi-day positions. New entries appear here when placed, and drop
+          off once they exit (settled PnL then shows in the historic Swing view).
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs text-gray-500 border-b">
+                <th className="py-2 pr-3">Setup</th>
+                <th className="py-2 pr-3">Symbol</th>
+                <th className="py-2 pr-3 text-right">Qty</th>
+                <th className="py-2 pr-3">Product</th>
+                <th className="py-2 pr-3 text-right">Ref Px</th>
+                <th className="py-2 pr-3 text-right">Notional</th>
+                <th className="py-2 pr-3">Entry</th>
+                <th className="py-2 pr-3">Exit by</th>
+                <th className="py-2 pr-3">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {positions.map((p, i) => (
+                <tr key={`${p.setup}-${p.symbol}-${i}`} className="border-b last:border-0 hover:bg-gray-50 dark:hover:bg-gray-800">
+                  <td className="py-2 pr-3 text-xs text-gray-600 dark:text-gray-400">{MULTIDAY_LABELS[p.setup] ?? p.setup}</td>
+                  <td className="py-2 pr-3 font-medium">{p.symbol}</td>
+                  <td className="py-2 pr-3 text-right tabular-nums text-gray-600">{p.qty.toLocaleString()}</td>
+                  <td className="py-2 pr-3 text-xs text-gray-600 dark:text-gray-400">
+                    {p.product ?? "—"}{p.leverage && p.leverage > 1 ? ` ${p.leverage}×` : ""}
+                  </td>
+                  <td className="py-2 pr-3 text-right tabular-nums">{p.signal_close ? `₹${p.signal_close.toFixed(2)}` : "—"}</td>
+                  <td className="py-2 pr-3 text-right tabular-nums text-gray-600">{formatINR(p.notional)}</td>
+                  <td className="py-2 pr-3 text-xs text-gray-500">{p.entry_date ?? "—"}</td>
+                  <td className="py-2 pr-3 text-xs text-gray-500">{p.exit_on_date ?? "—"}</td>
+                  <td className="py-2 pr-3">
+                    <span className={cn(
+                      "text-xs px-2 py-0.5 rounded font-medium",
+                      p.status === "pending_fill"
+                        ? "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300"
+                        : "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300"
+                    )}>
+                      {p.status === "pending_fill" ? "pending fill" : "held"}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
