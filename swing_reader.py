@@ -78,10 +78,22 @@ class SwingReader:
                       date_to: Optional[str] = None) -> Dict:
         """Pool the swing PnL ledgers into the historic page's AggregateData shape.
 
-        setup: "all" pools every SWING_SETUPS member; otherwise a single setup.
+        setup: family or single-setup selector —
+          "all"       -> every SWING_SETUPS member (overnight + multiday)
+          "overnight" -> just the 1-night overnight setup(s)
+          "multiday"  -> the 2-3 day multi_day batch (every swing setup that is
+                         NOT overnight), pooled like intraday pools its setups
+          otherwise   -> a single named setup
         date_from/date_to: inclusive YYYY-MM-DD bounds on the settle date.
         """
-        setups = SWING_SETUPS if setup == "all" else [setup]
+        if setup == "all":
+            setups = list(SWING_SETUPS)
+        elif setup == "overnight":
+            setups = [s for s in SWING_SETUPS if s in OVERNIGHT_SETUPS]
+        elif setup == "multiday":
+            setups = [s for s in SWING_SETUPS if s not in OVERNIGHT_SETUPS]
+        else:
+            setups = [setup]
 
         rows: List[Dict] = []  # {setup, pnl, date}
         for s in setups:

@@ -7,11 +7,8 @@ import { formatINR } from "@/lib/utils";
 import {
   AggregateData,
   HistoricalTrade,
-  SetupStats,
-  DailyData,
   fetchAggregate,
   fetchSwingAggregate,
-  SWING_SETUPS,
 } from "@/lib/api";
 import { History, RefreshCw, TrendingUp, Target, Calendar, BarChart3 } from "lucide-react";
 
@@ -48,22 +45,13 @@ const PnLHistogramChart = dynamic(
 
 type TabType = "overview" | "setups" | "daily" | "trades";
 type ConfigType = "fixed" | "live";
-type Family = "intraday" | "swing";
-
-// Pretty labels for the swing setups in the filter.
-const SWING_LABELS: Record<string, string> = {
-  all: "All (pooled book)",
-  close_dn_overnight_long: "close_dn (overnight)",
-  mtf_capitulation_revert_long: "mtf_capitulation",
-  low52_capitulation_revert_long: "low52",
-  zscore_oversold_revert_long: "zscore",
-  crash2d_revert_long: "crash2d",
-};
+// Three top-level families. "overnight" = the 1-night close_dn book; "multiday"
+// = the 2-3 day capitulation batch (pooled across its setups, like intraday).
+type Family = "intraday" | "overnight" | "multiday";
 
 export default function HistoricalPage() {
   const [family, setFamily] = useState<Family>("intraday");
   const [configType, setConfigType] = useState<ConfigType>("fixed");
-  const [swingSetup, setSwingSetup] = useState<string>("all");
   const [data, setData] = useState<AggregateData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -76,9 +64,11 @@ export default function HistoricalPage() {
       setLoading(true);
       const from = resetFilters ? undefined : dateFrom || undefined;
       const to = resetFilters ? undefined : dateTo || undefined;
-      const result = family === "swing"
-        ? await fetchSwingAggregate(swingSetup, from, to)
-        : await fetchAggregate(configType, from, to);
+      // intraday -> per-config aggregate; overnight/multiday -> swing aggregate
+      // filtered to that family (multiday pools all its setups, like intraday).
+      const result = family === "intraday"
+        ? await fetchAggregate(configType, from, to)
+        : await fetchSwingAggregate(family, from, to);
       setData(result);
       setError(null);
 
@@ -96,7 +86,7 @@ export default function HistoricalPage() {
 
   useEffect(() => {
     loadData(true);
-  }, [configType, family, swingSetup]);
+  }, [configType, family]);
 
   const handleDateFilter = () => {
     loadData();
@@ -133,9 +123,9 @@ export default function HistoricalPage() {
         </div>
 
         <div className="flex items-center gap-3 flex-wrap">
-          {/* Family: Intraday (MIS, same-day) vs Swing (delivery / multi-day book) */}
+          {/* Family: intraday (MIS, same-day) / overnight (1-night) / multiday (2-3 day batch) */}
           <div className="inline-flex rounded-lg border overflow-hidden text-sm font-medium">
-            {(["intraday", "swing"] as Family[]).map((f) => (
+            {(["intraday", "overnight", "multiday"] as Family[]).map((f) => (
               <button
                 key={f}
                 onClick={() => setFamily(f)}
@@ -149,7 +139,7 @@ export default function HistoricalPage() {
               </button>
             ))}
           </div>
-          {family === "intraday" ? (
+          {family === "intraday" && (
             <select
               value={configType}
               onChange={(e) => setConfigType(e.target.value as ConfigType)}
@@ -157,19 +147,6 @@ export default function HistoricalPage() {
             >
               <option value="fixed">Fixed (5L)</option>
               <option value="live">Live</option>
-            </select>
-          ) : (
-            <select
-              value={swingSetup}
-              onChange={(e) => setSwingSetup(e.target.value)}
-              className="text-sm border rounded-lg px-3 py-2 bg-white dark:bg-gray-800 font-medium"
-            >
-              <option value="all">{SWING_LABELS.all}</option>
-              {SWING_SETUPS.map((s) => (
-                <option key={s} value={s}>
-                  {SWING_LABELS[s] ?? s}
-                </option>
-              ))}
             </select>
           )}
           <input
@@ -250,7 +227,7 @@ export default function HistoricalPage() {
           {activeTab === "overview" && <OverviewTab data={data} />}
           {activeTab === "setups" && <SetupsTab data={data} />}
           {activeTab === "daily" && <DailyTab data={data} />}
-          {activeTab === "trades" && <TradesTab data={data} />}
+          {activeTab === "trades" && <TradesTab data={data} family={family} />}
         </>
       ) : null}
     </div>
@@ -477,23 +454,66 @@ function DailyTab({ data }: { data: AggregateData }) {
 }
 
 // ============ Trades Tab ============
-function TradesTab({ data }: { data: AggregateData }) {
+
+// Shared per-trade table (used by the single-table view and each per-exit-date
+// group in the multiday view).
+function TradeTable({ trades }: { trades: HistoricalTrade[] }) {
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-lg border shadow-sm overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead className="bg-gray-50 dark:bg-gray-900">
+          <tr>
+            <th className="px-4 py-3 text-left font-medium">Symbol</th>
+            <th className="px-4 py-3 text-left font-medium">Setup</th>
+            <th className="px-4 py-3 text-right font-medium">PnL</th>
+            <th className="px-4 py-3 text-left font-medium">Exit Reason</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+          {trades.map((t, idx) => (
+            <tr key={`${t.symbol}-${idx}`} className="hover:bg-gray-50 dark:hover:bg-gray-900">
+              <td className="px-4 py-3 font-medium">{t.symbol}</td>
+              <td className="px-4 py-3">{t.setup}</td>
+              <td
+                className={`px-4 py-3 text-right font-medium ${
+                  t.pnl >= 0 ? "text-green-600" : "text-red-600"
+                }`}
+              >
+                {formatINR(t.pnl)}
+              </td>
+              <td className="px-4 py-3">{t.exit_reason}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function TradesTab({ data, family }: { data: AggregateData; family: Family }) {
   const trades = data.trades || [];
 
-  if (trades.length === 0) {
-    return <div className="text-center py-12 text-gray-500">No trades data available</div>;
-  }
+  // Group multiday trades by exit date with a standalone per-day PnL (no running
+  // cumulative — positions settle on different days, so cumulative is misleading).
+  const byExitDate = useMemo(() => {
+    const groups: Record<string, HistoricalTrade[]> = {};
+    for (const t of trades) {
+      const d = t.date || "—";
+      (groups[d] ||= []).push(t);
+    }
+    // Most recent exit date first.
+    return Object.keys(groups)
+      .sort((a, b) => (a < b ? 1 : -1))
+      .map((d) => ({
+        date: d,
+        rows: groups[d],
+        pnl: groups[d].reduce((acc, t) => acc + t.pnl, 0),
+      }));
+  }, [trades]);
 
-  // Calculate stats
   const pnlValues = trades.map((t) => t.pnl);
-  const maxWin = Math.max(...pnlValues);
-  const maxLoss = Math.min(...pnlValues);
-  const winners = trades.filter((t) => t.pnl > 0);
-  const losers = trades.filter((t) => t.pnl <= 0);
-  const avgWin = winners.length > 0 ? winners.reduce((a, b) => a + b.pnl, 0) / winners.length : 0;
-  const avgLoss = losers.length > 0 ? losers.reduce((a, b) => a + b.pnl, 0) / losers.length : 0;
 
-  // PnL distribution histogram
+  // PnL distribution histogram (over all trades, both views).
   const histogramData = useMemo(() => {
     if (pnlValues.length === 0) return [];
     const bins: { range: string; count: number }[] = [];
@@ -512,6 +532,17 @@ function TradesTab({ data }: { data: AggregateData }) {
     }
     return bins;
   }, [trades, pnlValues]);
+
+  if (trades.length === 0) {
+    return <div className="text-center py-12 text-gray-500">No trades data available</div>;
+  }
+
+  const maxWin = Math.max(...pnlValues);
+  const maxLoss = Math.min(...pnlValues);
+  const winners = trades.filter((t) => t.pnl > 0);
+  const losers = trades.filter((t) => t.pnl <= 0);
+  const avgWin = winners.length > 0 ? winners.reduce((a, b) => a + b.pnl, 0) / winners.length : 0;
+  const avgLoss = losers.length > 0 ? losers.reduce((a, b) => a + b.pnl, 0) / losers.length : 0;
 
   return (
     <div className="space-y-6">
@@ -535,38 +566,28 @@ function TradesTab({ data }: { data: AggregateData }) {
         </section>
       )}
 
-      {/* Trades Table */}
-      <section>
-        <h3 className="text-md font-semibold mb-3">All Trades ({trades.length})</h3>
-        <div className="bg-white dark:bg-gray-800 rounded-lg border shadow-sm overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 dark:bg-gray-900">
-              <tr>
-                <th className="px-4 py-3 text-left font-medium">Symbol</th>
-                <th className="px-4 py-3 text-left font-medium">Setup</th>
-                <th className="px-4 py-3 text-right font-medium">PnL</th>
-                <th className="px-4 py-3 text-left font-medium">Exit Reason</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-              {trades.map((t, idx) => (
-                <tr key={`${t.symbol}-${idx}`} className="hover:bg-gray-50 dark:hover:bg-gray-900">
-                  <td className="px-4 py-3 font-medium">{t.symbol}</td>
-                  <td className="px-4 py-3">{t.setup}</td>
-                  <td
-                    className={`px-4 py-3 text-right font-medium ${
-                      t.pnl >= 0 ? "text-green-600" : "text-red-600"
-                    }`}
-                  >
-                    {formatINR(t.pnl)}
-                  </td>
-                  <td className="px-4 py-3">{t.exit_reason}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
+      {/* Trades — multiday: one table per exit date with that day's PnL.
+          intraday/overnight: a single all-trades table. */}
+      {family === "multiday" ? (
+        byExitDate.map((g) => (
+          <section key={g.date}>
+            <h3 className="text-md font-semibold mb-3 flex items-center justify-between">
+              <span>
+                Exit {g.date} · {g.rows.length} trade{g.rows.length === 1 ? "" : "s"}
+              </span>
+              <span className={g.pnl >= 0 ? "text-green-600" : "text-red-600"}>
+                {formatINR(g.pnl)}
+              </span>
+            </h3>
+            <TradeTable trades={g.rows} />
+          </section>
+        ))
+      ) : (
+        <section>
+          <h3 className="text-md font-semibold mb-3">All Trades ({trades.length})</h3>
+          <TradeTable trades={trades} />
+        </section>
+      )}
     </div>
   );
 }

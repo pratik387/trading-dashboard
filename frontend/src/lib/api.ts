@@ -158,6 +158,8 @@ export interface HistoricalTrade {
   exit_reason: string;
   entry: number;
   exit: number;
+  qty?: number;
+  date?: string; // exit/settle date (YYYY-MM-DD) — present for swing/overnight/multiday
 }
 
 export interface AggregateData {
