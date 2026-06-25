@@ -21,9 +21,21 @@ const SETUP_LABELS: Record<string, string> = {
 };
 const lbl = (s: string) => SETUP_LABELS[s] ?? s;
 
-// Group positions by their exit_on_date, sorted soonest-exit first ("—"/unknown
-// sorts last). Each exit date becomes its own standalone table — positions
-// settle on different days, so a single pooled/cumulative view is misleading.
+// "2026-06-26" -> "Thu, 26 Jun", with Today/Tomorrow for the nearest two.
+function fmtExitDate(d: string): string {
+  if (d === "—") return "Unknown exit";
+  const dt = new Date(`${d}T00:00:00`);
+  if (isNaN(dt.getTime())) return d;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const diff = Math.round((dt.getTime() - today.getTime()) / 86400000);
+  const base = dt.toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" });
+  if (diff === 0) return `Today · ${base}`;
+  if (diff === 1) return `Tomorrow · ${base}`;
+  return base;
+}
+
+// Group by exit_on_date, soonest-exit first ("—"/unknown sorts last).
 function groupByExit<T extends { exit_on_date: string | null }>(
   items: T[]
 ): { date: string; rows: T[] }[] {
@@ -37,76 +49,60 @@ function groupByExit<T extends { exit_on_date: string | null }>(
     .map((d) => ({ date: d, rows: groups[d] }));
 }
 
-function OpenTable({ rows }: { rows: MultidayOpenPosition[] }) {
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="text-left text-xs text-gray-500 border-b">
-            <th className="py-2 pr-3">Setup</th>
-            <th className="py-2 pr-3">Symbol</th>
-            <th className="py-2 pr-3 text-right">Entry</th>
-            <th className="py-2 pr-3 text-right">Last</th>
-            <th className="py-2 pr-3 text-right">Qty</th>
-            <th className="py-2 pr-3">Product</th>
-            <th className="py-2 pr-3 text-right">Live PnL</th>
-            <th className="py-2 pr-3 text-right">%</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((p, i) => (
-            <tr key={`${p.setup}-${p.symbol}-${i}`} className="border-b last:border-0 hover:bg-gray-50 dark:hover:bg-gray-800">
-              <td className="py-2 pr-3 text-xs text-gray-600 dark:text-gray-400">{lbl(p.setup)}</td>
-              <td className="py-2 pr-3 font-medium">{p.symbol}</td>
-              <td className="py-2 pr-3 text-right tabular-nums">{p.entry_price ? `₹${p.entry_price.toFixed(2)}` : "—"}</td>
-              <td className="py-2 pr-3 text-right tabular-nums">{p.current_price != null ? `₹${p.current_price.toFixed(2)}` : "—"}</td>
-              <td className="py-2 pr-3 text-right tabular-nums text-gray-600">{p.qty.toLocaleString()}</td>
-              <td className="py-2 pr-3 text-xs text-gray-600 dark:text-gray-400">{p.product ?? "—"}{p.leverage && p.leverage > 1 ? ` ${p.leverage}×` : ""}</td>
-              <td className={cn("py-2 pr-3 text-right tabular-nums font-medium",
-                p.live_pnl == null ? "text-gray-400" : p.live_pnl >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400")}>
-                {p.live_pnl != null ? formatINR(p.live_pnl) : "—"}
-              </td>
-              <td className={cn("py-2 pr-3 text-right tabular-nums text-xs",
-                p.live_pnl_pct == null ? "text-gray-400" : p.live_pnl_pct >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400")}>
-                {p.live_pnl_pct != null ? `${p.live_pnl_pct >= 0 ? "+" : ""}${p.live_pnl_pct.toFixed(2)}%` : "—"}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
+function ExitCard({ date, rows }: { date: string; rows: MultidayOpenPosition[] }) {
+  const priced = rows.map((r) => r.live_pnl).filter((v): v is number => v != null);
+  const dayPnl = priced.reduce((a, b) => a + b, 0);
+  const capital = rows.reduce((a, b) => a + (b.capital ?? 0), 0);
+  const hasUnpriced = priced.length !== rows.length;
+  const dir = priced.length === 0 ? "flat" : dayPnl >= 0 ? "up" : "down";
 
-function PendingTable({ rows }: { rows: MultidayPendingPosition[] }) {
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="text-left text-xs text-gray-500 border-b">
-            <th className="py-2 pr-3">Setup</th>
-            <th className="py-2 pr-3">Symbol</th>
-            <th className="py-2 pr-3 text-right">Ref Px</th>
-            <th className="py-2 pr-3 text-right">Qty</th>
-            <th className="py-2 pr-3">Product</th>
-            <th className="py-2 pr-3 text-right">Capital</th>
-            <th className="py-2 pr-3">Fills on</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((p, i) => (
-            <tr key={`${p.setup}-${p.symbol}-${i}`} className="border-b last:border-0 hover:bg-gray-50 dark:hover:bg-gray-800">
-              <td className="py-2 pr-3 text-xs text-gray-600 dark:text-gray-400">{lbl(p.setup)}</td>
-              <td className="py-2 pr-3 font-medium">{p.symbol}</td>
-              <td className="py-2 pr-3 text-right tabular-nums">{p.ref_price ? `₹${p.ref_price.toFixed(2)}` : "—"}</td>
-              <td className="py-2 pr-3 text-right tabular-nums text-gray-600">{p.qty.toLocaleString()}</td>
-              <td className="py-2 pr-3 text-xs text-gray-600 dark:text-gray-400">{p.product ?? "—"}{p.leverage && p.leverage > 1 ? ` ${p.leverage}×` : ""}</td>
-              <td className="py-2 pr-3 text-right tabular-nums text-gray-600">{formatINR(p.capital)}</td>
-              <td className="py-2 pr-3 text-xs text-gray-500">{p.fills_on ?? "—"}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className="flex flex-col rounded-lg border bg-white dark:bg-gray-900 overflow-hidden shadow-sm">
+      {/* direction accent */}
+      <div className={cn("h-1", dir === "up" ? "bg-green-500" : dir === "down" ? "bg-red-500" : "bg-gray-300 dark:bg-gray-700")} />
+      {/* header */}
+      <div className="flex items-start justify-between px-4 pt-3 pb-2 border-b dark:border-gray-800">
+        <div>
+          <div className="font-semibold text-sm">{fmtExitDate(date)}</div>
+          <div className="text-xs text-gray-500 mt-0.5">
+            {rows.length} position{rows.length === 1 ? "" : "s"} · {formatINR(capital)}
+          </div>
+        </div>
+        <div className={cn("text-lg font-semibold tabular-nums",
+          dir === "up" ? "text-green-600 dark:text-green-400" : dir === "down" ? "text-red-600 dark:text-red-400" : "text-gray-400")}>
+          {priced.length === 0 ? "—" : formatINR(dayPnl)}
+          {hasUnpriced && priced.length > 0 && <span className="text-xs align-top">*</span>}
+        </div>
+      </div>
+      {/* positions */}
+      <div className="divide-y dark:divide-gray-800">
+        {rows.map((p, i) => {
+          const pnlUp = p.live_pnl != null && p.live_pnl >= 0;
+          return (
+            <div key={`${p.symbol}-${i}`} className="flex items-center justify-between gap-2 px-4 py-2">
+              <div className="min-w-0">
+                <div className="font-medium text-sm truncate">{p.symbol}</div>
+                <div className="text-xs text-gray-500">{lbl(p.setup)} · {p.qty.toLocaleString()}</div>
+              </div>
+              <div className="text-xs text-gray-500 tabular-nums text-right whitespace-nowrap">
+                {p.entry_price ? p.entry_price.toFixed(2) : "—"}
+                <span className="text-gray-400"> → </span>
+                {p.current_price != null ? p.current_price.toFixed(2) : "—"}
+              </div>
+              <div className="text-right tabular-nums w-20 shrink-0">
+                <div className={cn("font-medium text-sm",
+                  p.live_pnl == null ? "text-gray-400" : pnlUp ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400")}>
+                  {p.live_pnl != null ? formatINR(p.live_pnl) : "—"}
+                </div>
+                <div className={cn("text-xs",
+                  p.live_pnl_pct == null ? "text-gray-400" : p.live_pnl_pct >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400")}>
+                  {p.live_pnl_pct != null ? `${p.live_pnl_pct >= 0 ? "+" : ""}${p.live_pnl_pct.toFixed(2)}%` : ""}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -154,8 +150,9 @@ export default function MultidayPage() {
   const s = book?.summary;
   const pnl = s?.total_live_pnl ?? null;
 
-  const openGroups = groupByExit(book?.open ?? []);
-  const pendingGroups = groupByExit(book?.pending ?? []);
+  const exitCards = groupByExit(book?.open ?? []);
+  const pending = [...(book?.pending ?? [])].sort((a, b) =>
+    (a.exit_on_date ?? "~").localeCompare(b.exit_on_date ?? "~"));
 
   return (
     <div className="space-y-6">
@@ -170,7 +167,7 @@ export default function MultidayPage() {
             </span>
           </h1>
           <p className="text-sm text-gray-500 mt-1">
-            CNC/MTF capitulation setups (2-3 day holds) — grouped by exit date, open positions marked to latest price
+            CNC/MTF capitulation setups (2-3 day holds) — open positions by exit date, marked to latest price
             {lastLoaded && <span className="ml-2">· Last loaded {lastLoaded}</span>}
           </p>
         </div>
@@ -199,71 +196,71 @@ export default function MultidayPage() {
         </div>
       )}
 
-      {/* Open positions — one table per exit date, each with that day's live PnL */}
-      <div className="rounded-lg border bg-white dark:bg-gray-900 p-4 space-y-4">
+      {/* Upcoming exits — one card per exit date */}
+      <section className="space-y-3">
         <h2 className="font-semibold flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-green-500"></span>
-          Open Positions
-          <span className="text-xs font-normal text-gray-500">({book?.open.length ?? 0} held · by exit date)</span>
+          Upcoming Exits
+          <span className="text-xs font-normal text-gray-500">({book?.open.length ?? 0} held)</span>
         </h2>
-        {openGroups.length === 0 ? (
-          <div className="text-sm text-gray-500 py-6 text-center">
+        {exitCards.length === 0 ? (
+          <div className="rounded-lg border bg-white dark:bg-gray-900 text-sm text-gray-500 py-10 text-center">
             No open positions. Pending entries below become open here once they fill at the next open.
           </div>
         ) : (
-          openGroups.map((g) => {
-            const pnls = g.rows.map((r) => r.live_pnl).filter((v): v is number => v != null);
-            const groupPnl = pnls.reduce((a, b) => a + b, 0);
-            const groupCapital = g.rows.reduce((a, b) => a + (b.capital ?? 0), 0);
-            const allPriced = pnls.length === g.rows.length;
-            return (
-              <div key={g.date} className="space-y-2">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="font-medium text-gray-700 dark:text-gray-300">
-                    Exit {g.date} · {g.rows.length} position{g.rows.length === 1 ? "" : "s"}
-                    <span className="ml-2 text-xs font-normal text-gray-500">{formatINR(groupCapital)} capital</span>
-                  </span>
-                  <span className={cn("tabular-nums font-medium",
-                    pnls.length === 0 ? "text-gray-400" : groupPnl >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400")}>
-                    {pnls.length === 0 ? "—" : `${formatINR(groupPnl)}${allPriced ? "" : " *"}`}
-                  </span>
-                </div>
-                <OpenTable rows={g.rows} />
-              </div>
-            );
-          })
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+            {exitCards.map((g) => (
+              <ExitCard key={g.date} date={g.date} rows={g.rows} />
+            ))}
+          </div>
         )}
-        {openGroups.some((g) => g.rows.some((r) => r.live_pnl == null)) && (
-          <p className="text-xs text-gray-400">* some positions unpriced; day PnL excludes them.</p>
+        {exitCards.some((g) => g.rows.some((r) => r.live_pnl == null)) && (
+          <p className="text-xs text-gray-400">* day PnL excludes positions with no current price.</p>
         )}
-      </div>
+      </section>
 
-      {/* Pending entries — one table per exit date */}
-      <div className="rounded-lg border bg-white dark:bg-gray-900 p-4 space-y-4">
+      {/* Pending entries — one compact list (secondary; not yet filled, no PnL) */}
+      <section className="space-y-3">
         <h2 className="font-semibold flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-amber-500"></span>
           Pending Entries
-          <span className="text-xs font-normal text-gray-500">({book?.pending.length ?? 0} · AMO awaiting next open · by exit date)</span>
+          <span className="text-xs font-normal text-gray-500">({pending.length} · AMO awaiting next open)</span>
         </h2>
-        {pendingGroups.length === 0 ? (
-          <div className="text-sm text-gray-500 py-6 text-center">No pending entries.</div>
+        {pending.length === 0 ? (
+          <div className="rounded-lg border bg-white dark:bg-gray-900 text-sm text-gray-500 py-6 text-center">No pending entries.</div>
         ) : (
-          pendingGroups.map((g) => {
-            const groupCapital = g.rows.reduce((a, b) => a + (b.capital ?? 0), 0);
-            return (
-              <div key={g.date} className="space-y-2">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="font-medium text-gray-700 dark:text-gray-300">
-                    Exit {g.date} · {g.rows.length} entr{g.rows.length === 1 ? "y" : "ies"}
-                  </span>
-                  <span className="tabular-nums text-xs text-gray-500">{formatINR(groupCapital)} capital</span>
-                </div>
-                <PendingTable rows={g.rows} />
-              </div>
-            );
-          })
+          <div className="rounded-lg border bg-white dark:bg-gray-900 overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs text-gray-500 border-b dark:border-gray-800">
+                  <th className="py-2 px-3">Exit</th>
+                  <th className="py-2 px-3">Setup</th>
+                  <th className="py-2 px-3">Symbol</th>
+                  <th className="py-2 px-3 text-right">Ref Px</th>
+                  <th className="py-2 px-3 text-right">Qty</th>
+                  <th className="py-2 px-3">Product</th>
+                  <th className="py-2 px-3 text-right">Capital</th>
+                  <th className="py-2 px-3">Fills on</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y dark:divide-gray-800">
+                {pending.map((p: MultidayPendingPosition, i) => (
+                  <tr key={`${p.setup}-${p.symbol}-${i}`} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+                    <td className="py-2 px-3 text-xs text-gray-500 whitespace-nowrap">{p.exit_on_date ? fmtExitDate(p.exit_on_date) : "—"}</td>
+                    <td className="py-2 px-3 text-xs text-gray-600 dark:text-gray-400">{lbl(p.setup)}</td>
+                    <td className="py-2 px-3 font-medium">{p.symbol}</td>
+                    <td className="py-2 px-3 text-right tabular-nums">{p.ref_price ? `₹${p.ref_price.toFixed(2)}` : "—"}</td>
+                    <td className="py-2 px-3 text-right tabular-nums text-gray-600">{p.qty.toLocaleString()}</td>
+                    <td className="py-2 px-3 text-xs text-gray-600 dark:text-gray-400">{p.product ?? "—"}{p.leverage && p.leverage > 1 ? ` ${p.leverage}×` : ""}</td>
+                    <td className="py-2 px-3 text-right tabular-nums text-gray-600">{formatINR(p.capital)}</td>
+                    <td className="py-2 px-3 text-xs text-gray-500">{p.fills_on ?? "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
-      </div>
+      </section>
     </div>
   );
 }
