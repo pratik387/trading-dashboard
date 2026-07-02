@@ -6,7 +6,8 @@ so direct file access is the simplest and lowest-latency path.
 
 Files read (all under base_path):
     state/overnight_slots.json
-    state/decay_tripwire_close_dn_overnight_long.json
+    state/decay_tripwire_close_dn_overnight_long.json        (paper book)
+    state/decay_tripwire_close_dn_overnight_long_live.json   (live book)
     data/close_dn_baseline/candidates_<date>.json
     data/close_dn_baseline/candidates_latest.json
     data/close_dn_baseline/baseline_<date>.json
@@ -34,6 +35,14 @@ DEFAULT_ENGINE_ROOT = Path.home() / "intraday_fixed" / "intraday-trade-assistant
 # Setup name. Hard-coded for Phase 1; generalize if/when a second
 # overnight setup ships.
 SETUP_NAME = "close_dn_overnight_long"
+
+# Two tripwire ledgers on the engine VM since real-money activation:
+#   paper — Rs1L idealized reconstruction (research continuity)
+#   live  — real fills, real sizing
+LEDGER_FILES = {
+    "paper": f"decay_tripwire_{SETUP_NAME}.json",
+    "live": f"decay_tripwire_{SETUP_NAME}_live.json",
+}
 
 
 class OvernightReader:
@@ -170,21 +179,27 @@ class OvernightReader:
 
     # ─── Trade ledger ──────────────────────────────────────────────────
 
-    def get_ledger(self, limit: Optional[int] = None) -> Dict:
+    def get_ledger(self, limit: Optional[int] = None, book: str = "paper") -> Dict:
         """Return tripwire ledger entries (all settled trade PnLs in order).
+
+        `book` selects which ledger: "paper" (Rs1L idealized) or "live"
+        (real fills, real sizing). Raises ValueError on anything else.
 
         Note: each entry currently only has {net_pnl_inr, ts_iso} — symbol
         and per-trade detail must be reconstructed from the slot pool at
         settle time. For richer per-trade history, sees the engine's
         archival pipeline (Phase 3+) or re-derive from logs.
         """
-        path = self.state_dir / f"decay_tripwire_{SETUP_NAME}.json"
+        if book not in LEDGER_FILES:
+            raise ValueError(f"unknown book '{book}' (expected one of {sorted(LEDGER_FILES)})")
+        path = self.state_dir / LEDGER_FILES[book]
         data = _load_json(path)
         trades = data.get("trades", [])
         if limit:
             trades = trades[-limit:]
         return {
             "setup_name": SETUP_NAME,
+            "book": book,
             "window_trades": data.get("window_trades"),
             "pf_floor": data.get("pf_floor"),
             "trades": trades,
@@ -196,14 +211,14 @@ class OvernightReader:
 
     # ─── Summary ───────────────────────────────────────────────────────
 
-    def get_summary(self) -> Dict:
-        """Return cumulative paper-PnL summary + daily breakdown.
+    def get_summary(self, book: str = "paper") -> Dict:
+        """Return cumulative PnL summary + daily breakdown for `book`.
 
-        Daily breakdown uses ledger timestamps (the day verify-exit
-        recorded the trade), not signal/entry day. Close enough for the
-        dashboard's purposes.
+        `book` ∈ {"paper", "live"} — see get_ledger. Daily breakdown uses
+        ledger timestamps (the day verify-exit recorded the trade), not
+        signal/entry day. Close enough for the dashboard's purposes.
         """
-        ledger = self.get_ledger()
+        ledger = self.get_ledger(book=book)
         trades = ledger["trades"]
 
         # Daily aggregation
@@ -239,6 +254,7 @@ class OvernightReader:
 
         return {
             "setup_name": SETUP_NAME,
+            "book": book,
             "total_trades": len(trades),
             "cumulative_pnl": round(total_pnl, 2),
             "wins": wins,
@@ -275,14 +291,15 @@ class OvernightReader:
 
     # ─── Per-day fires (derived) ───────────────────────────────────────
 
-    def get_fires_for_date(self, session_date: str) -> Dict:
+    def get_fires_for_date(self, session_date: str, book: str = "paper") -> Dict:
         """Return all trades that *settled* on `session_date`.
 
-        Cross-references the ledger (PnL by ts_iso day) with the current
-        slot pool to enrich with symbol/buy/sell where possible. For
-        slots already released, only the PnL is available.
+        `book` ∈ {"paper", "live"} — see get_ledger. Cross-references the
+        ledger (PnL by ts_iso day) with the current slot pool to enrich
+        with symbol/buy/sell where possible. For slots already released,
+        only the PnL is available.
         """
-        ledger = self.get_ledger()
+        ledger = self.get_ledger(book=book)
         pool = self.get_slot_pool()
         # Symbol map from current pool — only covers t1_settling slots
         # whose expected_exit_date matches the queried date.

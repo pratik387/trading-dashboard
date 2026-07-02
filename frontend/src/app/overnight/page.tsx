@@ -37,6 +37,9 @@ export default function OvernightPage() {
   const [cron, setCron] = useState<OvernightCronHealth | null>(null);
   const [archivedDates, setArchivedDates] = useState<string[]>([]);
   const [selectedDate, setSelectedDate] = useState<string>(LIVE_MODE);
+  // Which tripwire ledger to read: real-money fills vs Rs1L idealized paper.
+  // Only applies in live mode — archives predate the live/paper split.
+  const [book, setBook] = useState<"live" | "paper">("live");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
@@ -49,8 +52,8 @@ export default function OvernightPage() {
       if (isLive) {
         const [p, l, s, ch] = await Promise.all([
           fetchOvernightPool(),
-          fetchOvernightLedger(),
-          fetchOvernightSummary(),
+          fetchOvernightLedger(undefined, book),
+          fetchOvernightSummary(book),
           fetchOvernightCronHealth(),
         ]);
         setPool(p);
@@ -75,7 +78,7 @@ export default function OvernightPage() {
     } finally {
       setLoading(false);
     }
-  }, [isLive, selectedDate]);
+  }, [isLive, selectedDate, book]);
 
   // Populate archived-dates list once on mount.
   useEffect(() => {
@@ -145,6 +148,38 @@ export default function OvernightPage() {
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
+          {/* Book toggle — live mode only; archives predate the live/paper split */}
+          {isLive && (
+            <div
+              className="flex rounded-lg border overflow-hidden text-sm font-medium"
+              role="group"
+              aria-label="Book selector"
+            >
+              <button
+                onClick={() => setBook("live")}
+                className={cn(
+                  "px-3 py-2",
+                  book === "live"
+                    ? "bg-green-600 text-white"
+                    : "bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700"
+                )}
+              >
+                Live (real ₹)
+              </button>
+              <button
+                onClick={() => setBook("paper")}
+                className={cn(
+                  "px-3 py-2 border-l",
+                  book === "paper"
+                    ? "bg-blue-600 text-white"
+                    : "bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700"
+                )}
+              >
+                Paper (₹1L idealized)
+              </button>
+            </div>
+          )}
+
           <select
             value={selectedDate}
             onChange={(e) => setSelectedDate(e.target.value)}
@@ -204,7 +239,14 @@ export default function OvernightPage() {
 
       {/* Summary metrics */}
       {summary && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="space-y-2">
+          {isLive && (
+            <div className="flex items-center gap-2 text-xs text-gray-500">
+              <span>Performance</span>
+              <BookChip book={book} />
+            </div>
+          )}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <MetricCard
             label="Cumulative PnL"
             value={formatINR(summary.cumulative_pnl)}
@@ -226,6 +268,7 @@ export default function OvernightPage() {
             value={String(summary.current_open_positions)}
             subValue={`${summary.max_slots - summary.current_open_positions} free of ${summary.max_slots}`}
           />
+          </div>
         </div>
       )}
 
@@ -236,8 +279,28 @@ export default function OvernightPage() {
       {pool && <ClosedTodayPanel pool={pool} />}
 
       {/* Panel 2: Trade ledger */}
-      {ledger && summary && <LedgerPanel ledger={ledger} dailyBreakdown={summary.daily_breakdown} />}
+      {ledger && summary && (
+        <LedgerPanel
+          ledger={ledger}
+          dailyBreakdown={summary.daily_breakdown}
+          book={isLive ? book : null}
+        />
+      )}
     </div>
+  );
+}
+
+// ─── Book chip (live vs paper ledger source) ───────────────────────────
+
+function BookChip({ book }: { book: "live" | "paper" }) {
+  return book === "live" ? (
+    <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300 font-medium">
+      Live book (real ₹)
+    </span>
+  ) : (
+    <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300 font-medium">
+      Paper book (₹1L idealized)
+    </span>
   );
 }
 
@@ -479,9 +542,11 @@ function ClosedTodayPanel({ pool }: { pool: OvernightPool }) {
 function LedgerPanel({
   ledger,
   dailyBreakdown,
+  book,
 }: {
   ledger: OvernightLedger;
   dailyBreakdown: OvernightSummary["daily_breakdown"];
+  book: "live" | "paper" | null; // null = archive view (pre-split, paper-era)
 }) {
   // Build cumulative-PnL trajectory
   const cumTrades = ledger.trades.reduce<{ idx: number; cum: number; pnl: number }[]>((acc, t, i) => {
@@ -498,6 +563,7 @@ function LedgerPanel({
         <span className="text-xs font-normal text-gray-500">
           ({ledger.trades.length} settled)
         </span>
+        {book && <BookChip book={book} />}
       </h2>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

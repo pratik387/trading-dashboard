@@ -488,6 +488,7 @@ export interface OvernightLedgerEntry {
 
 export interface OvernightLedger {
   setup_name: string;
+  book?: string; // "paper" | "live" — which tripwire ledger this came from
   window_trades: number | null;
   pf_floor: number | null;
   trades: OvernightLedgerEntry[];
@@ -506,6 +507,7 @@ export interface OvernightDailyRow {
 
 export interface OvernightSummary {
   setup_name: string;
+  book?: string; // "paper" | "live" — which tripwire ledger this came from
   total_trades: number;
   cumulative_pnl: number;
   wins: number;
@@ -553,15 +555,17 @@ export async function fetchOvernightPool(): Promise<OvernightPool> {
   return res.json();
 }
 
-export async function fetchOvernightLedger(limit?: number): Promise<OvernightLedger> {
-  const url = limit ? `${API_BASE}/api/overnight/ledger?limit=${limit}` : `${API_BASE}/api/overnight/ledger`;
+export async function fetchOvernightLedger(limit?: number, book: "live" | "paper" = "paper"): Promise<OvernightLedger> {
+  const url = limit
+    ? `${API_BASE}/api/overnight/ledger?limit=${limit}&book=${book}`
+    : `${API_BASE}/api/overnight/ledger?book=${book}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error("Failed to fetch overnight ledger");
   return res.json();
 }
 
-export async function fetchOvernightSummary(): Promise<OvernightSummary> {
-  const res = await fetch(`${API_BASE}/api/overnight/summary`);
+export async function fetchOvernightSummary(book: "live" | "paper" = "paper"): Promise<OvernightSummary> {
+  const res = await fetch(`${API_BASE}/api/overnight/summary?book=${book}`);
   if (!res.ok) throw new Error("Failed to fetch overnight summary");
   return res.json();
 }

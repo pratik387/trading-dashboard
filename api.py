@@ -831,19 +831,29 @@ async def overnight_pool():
 
 
 @app.get("/api/overnight/ledger")
-async def overnight_ledger(limit: Optional[int] = None):
-    """Settled-trade PnL ledger (from decay tripwire). `limit` = recent N."""
+async def overnight_ledger(limit: Optional[int] = None, book: str = "paper"):
+    """Settled-trade PnL ledger (from decay tripwire). `limit` = recent N.
+
+    `book` = 'paper' (Rs1L idealized) or 'live' (real fills).
+    """
     try:
-        return overnight_reader.get_ledger(limit=limit)
+        return overnight_reader.get_ledger(limit=limit, book=book)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/overnight/summary")
-async def overnight_summary():
-    """Cumulative PnL + WR + per-day breakdown + open-position count."""
+async def overnight_summary(book: str = "paper"):
+    """Cumulative PnL + WR + per-day breakdown + open-position count.
+
+    `book` = 'paper' (Rs1L idealized) or 'live' (real fills).
+    """
     try:
-        return overnight_reader.get_summary()
+        return overnight_reader.get_summary(book=book)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -858,10 +868,15 @@ async def overnight_candidates(session_date: Optional[str] = None):
 
 
 @app.get("/api/overnight/fires/{session_date}")
-async def overnight_fires(session_date: str):
-    """All trades that settled on `session_date` (YYYY-MM-DD)."""
+async def overnight_fires(session_date: str, book: str = "paper"):
+    """All trades that settled on `session_date` (YYYY-MM-DD).
+
+    `book` = 'paper' (Rs1L idealized) or 'live' (real fills).
+    """
     try:
-        return overnight_reader.get_fires_for_date(session_date)
+        return overnight_reader.get_fires_for_date(session_date, book=book)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
