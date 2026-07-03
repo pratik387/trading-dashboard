@@ -263,20 +263,26 @@ export default function OvernightPage() {
             value={`${summary.win_rate_pct.toFixed(1)}%`}
             help="Backtest 6mo was 56% on n=197 — small samples vary wildly"
           />
-          <MetricCard
-            label="Open Positions"
-            value={String(summary.current_open_positions)}
-            subValue={`${summary.max_slots - summary.current_open_positions} free of ${summary.max_slots}`}
-          />
+          {(!isLive || book === "live") && (
+            <MetricCard
+              label="Open Positions"
+              value={String(summary.current_open_positions)}
+              subValue={`${summary.max_slots - summary.current_open_positions} free of ${summary.max_slots}`}
+            />
+          )}
           </div>
         </div>
       )}
 
+      {/* Panels 1a/1b render the SLOT POOL — live engine state. The paper book
+          has no slots (it's the Rs1L reconstructed ledger), so rendering these
+          under the Paper toggle showed LIVE positions on the paper view.
+          Live book + archive views only. */}
       {/* Panel 1a: Open positions (t0_open only) */}
-      {pool && <OpenPositionsPanel pool={pool} />}
+      {pool && (!isLive || book === "live") && <OpenPositionsPanel pool={pool} />}
 
       {/* Panel 1b: Closed today (t1_settling — sold today, awaiting T+1 settle) */}
-      {pool && <ClosedTodayPanel pool={pool} />}
+      {pool && (!isLive || book === "live") && <ClosedTodayPanel pool={pool} />}
 
       {/* Panel 2: Trade ledger */}
       {ledger && summary && (
