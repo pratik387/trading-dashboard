@@ -100,3 +100,22 @@ def test_missing_live_file_returns_empty_ledger(tmp_path):
     assert ledger["book"] == "live"
     assert ledger["trades"] == []
     assert ledger["loaded_from"] is None
+
+
+def test_get_ledger_as_of_filters_by_settle_date(tmp_path):
+    """as_of gives an exact as-of-EOD view of the append-only live ledger —
+    the live book's historical/archive path."""
+    state = tmp_path / "state"
+    state.mkdir(parents=True, exist_ok=True)
+    (state / "decay_tripwire_close_dn_overnight_long_live.json").write_text(
+        json.dumps({"trades": [
+            {"net_pnl_inr": 100.0, "ts_iso": "2026-07-01T09:30:00"},
+            {"net_pnl_inr": 200.0, "ts_iso": "2026-07-02T09:30:00"},
+            {"net_pnl_inr": 300.0, "ts_iso": "2026-07-03T09:30:00"},
+        ]}), encoding="utf-8")
+    from overnight_reader import OvernightReader
+    r = OvernightReader(base_path=tmp_path)
+    led = r.get_ledger(book="live", as_of="2026-07-02")
+    assert [t["net_pnl_inr"] for t in led["trades"]] == [100.0, 200.0]
+    s = r.get_summary(book="live", as_of="2026-07-01")
+    assert s["total_trades"] == 1 and s["cumulative_pnl"] == 100.0

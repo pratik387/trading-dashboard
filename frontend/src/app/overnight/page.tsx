@@ -63,8 +63,8 @@ export default function OvernightPage() {
       } else {
         const [p, l, s] = await Promise.all([
           fetchOvernightHistoryPool(selectedDate),
-          fetchOvernightHistoryLedger(selectedDate),
-          fetchOvernightHistorySummary(selectedDate),
+          fetchOvernightHistoryLedger(selectedDate, undefined, book),
+          fetchOvernightHistorySummary(selectedDate, book),
         ]);
         setPool(p);
         setLedger(l);
@@ -148,13 +148,13 @@ export default function OvernightPage() {
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
-          {/* Book toggle — live mode only; archives predate the live/paper split */}
-          {isLive && (
-            <div
-              className="flex rounded-lg border overflow-hidden text-sm font-medium"
-              role="group"
-              aria-label="Book selector"
-            >
+          {/* Book toggle — works in archive mode too: paper = OCI-archived
+              snapshot; live = the append-only live ledger filtered as-of date */}
+          <div
+            className="flex rounded-lg border overflow-hidden text-sm font-medium"
+            role="group"
+            aria-label="Book selector"
+          >
               <button
                 onClick={() => setBook("live")}
                 className={cn(
@@ -174,11 +174,10 @@ export default function OvernightPage() {
                     ? "bg-blue-600 text-white"
                     : "bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700"
                 )}
-              >
-                Paper (₹1L idealized)
-              </button>
-            </div>
-          )}
+            >
+              Paper (₹1L idealized)
+            </button>
+          </div>
 
           <select
             value={selectedDate}
@@ -240,12 +239,10 @@ export default function OvernightPage() {
       {/* Summary metrics */}
       {summary && (
         <div className="space-y-2">
-          {isLive && (
-            <div className="flex items-center gap-2 text-xs text-gray-500">
-              <span>Performance</span>
-              <BookChip book={book} />
-            </div>
-          )}
+          <div className="flex items-center gap-2 text-xs text-gray-500">
+            <span>Performance</span>
+            <BookChip book={book} />
+          </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <MetricCard
             label="Cumulative PnL"
@@ -289,7 +286,7 @@ export default function OvernightPage() {
         <LedgerPanel
           ledger={ledger}
           dailyBreakdown={summary.daily_breakdown}
-          book={isLive ? book : null}
+          book={book}
         />
       )}
     </div>

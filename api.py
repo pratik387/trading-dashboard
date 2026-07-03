@@ -934,19 +934,33 @@ async def overnight_history_pool(archive_date: str):
 
 
 @app.get("/api/overnight/history/{archive_date}/ledger")
-async def overnight_history_ledger(archive_date: str, limit: Optional[int] = None):
-    """Archived ledger as-of EOD on `archive_date`."""
+async def overnight_history_ledger(archive_date: str, limit: Optional[int] = None,
+                                   book: str = "paper"):
+    """Archived ledger as-of EOD on `archive_date`.
+
+    book=paper -> the OCI-archived (paper-era) ledger snapshot.
+    book=live  -> the LOCAL live ledger filtered to ts_iso <= archive_date —
+                  exact while the ledger is append-only (see reader docstring).
+    """
     try:
+        if book == "live":
+            return overnight_reader.get_ledger(limit=limit, book="live", as_of=archive_date)
         return get_overnight_historical().get_ledger(archive_date, limit=limit)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/overnight/history/{archive_date}/summary")
-async def overnight_history_summary(archive_date: str):
+async def overnight_history_summary(archive_date: str, book: str = "paper"):
     """Cumulative summary + per-day breakdown as-of `archive_date`."""
     try:
+        if book == "live":
+            return overnight_reader.get_summary(book="live", as_of=archive_date)
         return get_overnight_historical().get_summary(archive_date)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

@@ -179,11 +179,16 @@ class OvernightReader:
 
     # ─── Trade ledger ──────────────────────────────────────────────────
 
-    def get_ledger(self, limit: Optional[int] = None, book: str = "paper") -> Dict:
+    def get_ledger(self, limit: Optional[int] = None, book: str = "paper",
+                   as_of: Optional[str] = None) -> Dict:
         """Return tripwire ledger entries (all settled trade PnLs in order).
 
         `book` selects which ledger: "paper" (Rs1L idealized) or "live"
         (real fills, real sizing). Raises ValueError on anything else.
+        `as_of` (YYYY-MM-DD) keeps only trades settled ON OR BEFORE that date —
+        an exact as-of-EOD historical view while the ledger is append-only
+        (the live book's history path; the tripwire only trims past ~150
+        trades, and the OCI archive covers the long tail).
 
         Note: each entry currently only has {net_pnl_inr, ts_iso} — symbol
         and per-trade detail must be reconstructed from the slot pool at
@@ -195,6 +200,8 @@ class OvernightReader:
         path = self.state_dir / LEDGER_FILES[book]
         data = _load_json(path)
         trades = data.get("trades", [])
+        if as_of:
+            trades = [t for t in trades if str(t.get("ts_iso", ""))[:10] <= as_of]
         if limit:
             trades = trades[-limit:]
         return {
@@ -211,14 +218,15 @@ class OvernightReader:
 
     # ─── Summary ───────────────────────────────────────────────────────
 
-    def get_summary(self, book: str = "paper") -> Dict:
+    def get_summary(self, book: str = "paper", as_of: Optional[str] = None) -> Dict:
         """Return cumulative PnL summary + daily breakdown for `book`.
 
-        `book` ∈ {"paper", "live"} — see get_ledger. Daily breakdown uses
-        ledger timestamps (the day verify-exit recorded the trade), not
-        signal/entry day. Close enough for the dashboard's purposes.
+        `book` ∈ {"paper", "live"} — see get_ledger; `as_of` bounds the view to
+        trades settled on or before that date. Daily breakdown uses ledger
+        timestamps (the day verify-exit recorded the trade), not signal/entry
+        day. Close enough for the dashboard's purposes.
         """
-        ledger = self.get_ledger(book=book)
+        ledger = self.get_ledger(book=book, as_of=as_of)
         trades = ledger["trades"]
 
         # Daily aggregation

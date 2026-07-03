@@ -600,17 +600,20 @@ export async function fetchOvernightHistoryPool(date: string): Promise<Overnight
   return res.json();
 }
 
-export async function fetchOvernightHistoryLedger(date: string, limit?: number): Promise<OvernightLedger> {
-  const url = limit
-    ? `${API_BASE}/api/overnight/history/${date}/ledger?limit=${limit}`
-    : `${API_BASE}/api/overnight/history/${date}/ledger`;
-  const res = await fetch(url);
+export async function fetchOvernightHistoryLedger(
+  date: string, limit?: number, book: "live" | "paper" = "paper",
+): Promise<OvernightLedger> {
+  const params = new URLSearchParams({ book });
+  if (limit) params.set("limit", String(limit));
+  const res = await fetch(`${API_BASE}/api/overnight/history/${date}/ledger?${params}`);
   if (!res.ok) throw new Error("Failed to fetch archived ledger");
   return res.json();
 }
 
-export async function fetchOvernightHistorySummary(date: string): Promise<OvernightSummary> {
-  const res = await fetch(`${API_BASE}/api/overnight/history/${date}/summary`);
+export async function fetchOvernightHistorySummary(
+  date: string, book: "live" | "paper" = "paper",
+): Promise<OvernightSummary> {
+  const res = await fetch(`${API_BASE}/api/overnight/history/${date}/summary?book=${book}`);
   if (!res.ok) throw new Error("Failed to fetch archived summary");
   return res.json();
 }
