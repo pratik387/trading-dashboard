@@ -215,10 +215,12 @@ export const SWING_SETUPS = [
 export async function fetchSwingAggregate(
   setup: string = "all",
   dateFrom?: string,
-  dateTo?: string
+  dateTo?: string,
+  book: "live" | "paper" = "paper"
 ): Promise<AggregateData> {
   const params = new URLSearchParams();
   params.append("setup", setup);
+  params.append("book", book);
   if (dateFrom) params.append("date_from", dateFrom);
   if (dateTo) params.append("date_to", dateTo);
   const res = await fetch(`${API_BASE}/api/swing/aggregate?${params.toString()}`);

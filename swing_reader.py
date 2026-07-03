@@ -65,8 +65,12 @@ class SwingReader:
             return self.roots[setup]
         return _default_root_for(setup)
 
-    def _ledger_trades(self, setup: str) -> List[Dict]:
-        path = self._root_for(setup) / "state" / f"decay_tripwire_{setup}.json"
+    def _ledger_trades(self, setup: str, book: str = "paper") -> List[Dict]:
+        # book="live" selects the real-money ledger. Only the overnight setup
+        # trades live so far — multiday setups have no live ledger yet, so
+        # book="live" yields [] for them (file absent) rather than erroring.
+        suffix = "_live" if book == "live" else ""
+        path = self._root_for(setup) / "state" / f"decay_tripwire_{setup}{suffix}.json"
         if not path.exists():
             return []
         try:
@@ -75,7 +79,7 @@ class SwingReader:
             return []
 
     def get_aggregate(self, setup: str = "all", date_from: Optional[str] = None,
-                      date_to: Optional[str] = None) -> Dict:
+                      date_to: Optional[str] = None, book: str = "paper") -> Dict:
         """Pool the swing PnL ledgers into the historic page's AggregateData shape.
 
         setup: family or single-setup selector —
@@ -85,7 +89,11 @@ class SwingReader:
                          NOT overnight), pooled like intraday pools its setups
           otherwise   -> a single named setup
         date_from/date_to: inclusive YYYY-MM-DD bounds on the settle date.
+        book: "paper" (default) or "live" — live only exists for the overnight
+        setup so far; multiday ledgers are paper-only and return empty on live.
         """
+        if book not in ("paper", "live"):
+            raise ValueError(f"unknown book '{book}' (expected 'paper' or 'live')")
         if setup == "all":
             setups = list(SWING_SETUPS)
         elif setup == "overnight":
@@ -104,7 +112,7 @@ class SwingReader:
         pooled = len(setups) > 1
         rows: List[Dict] = []  # {setup, pnl, date}
         for s in setups:
-            for t in self._ledger_trades(s):
+            for t in self._ledger_trades(s, book=book):
                 if pooled and t.get("attributed"):
                     continue
                 ts = str(t.get("ts_iso", ""))

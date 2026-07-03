@@ -58,6 +58,8 @@ export default function HistoricalPage() {
   const [activeTab, setActiveTab] = useState<TabType>("overview");
   const [dateFrom, setDateFrom] = useState<string>("");
   const [dateTo, setDateTo] = useState<string>("");
+  // Overnight family only: real-money live ledger vs Rs1L idealized paper.
+  const [book, setBook] = useState<"live" | "paper">("paper");
 
   const loadData = async (resetFilters = false) => {
     try {
@@ -68,7 +70,7 @@ export default function HistoricalPage() {
       // filtered to that family (multiday pools all its setups, like intraday).
       const result = family === "intraday"
         ? await fetchAggregate(configType, from, to)
-        : await fetchSwingAggregate(family, from, to);
+        : await fetchSwingAggregate(family, from, to, family === "overnight" ? book : "paper");
       setData(result);
       setError(null);
 
@@ -86,7 +88,7 @@ export default function HistoricalPage() {
 
   useEffect(() => {
     loadData(true);
-  }, [configType, family]);
+  }, [configType, family, book]);
 
   const handleDateFilter = () => {
     loadData();
@@ -139,6 +141,30 @@ export default function HistoricalPage() {
               </button>
             ))}
           </div>
+          {family === "overnight" && (
+            <div className="inline-flex rounded-lg border overflow-hidden text-sm font-medium">
+              <button
+                onClick={() => setBook("live")}
+                className={`px-3 py-2 ${
+                  book === "live"
+                    ? "bg-green-600 text-white"
+                    : "bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300"
+                }`}
+              >
+                Live (real ₹)
+              </button>
+              <button
+                onClick={() => setBook("paper")}
+                className={`px-3 py-2 border-l ${
+                  book === "paper"
+                    ? "bg-blue-600 text-white"
+                    : "bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300"
+                }`}
+              >
+                Paper (₹1L idealized)
+              </button>
+            </div>
+          )}
           {family === "intraday" && (
             <select
               value={configType}

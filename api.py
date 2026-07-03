@@ -1000,14 +1000,18 @@ async def swing_setups():
 
 
 @app.get("/api/swing/aggregate")
-async def swing_aggregate(setup: str = "all", date_from: str = None, date_to: str = None):
+async def swing_aggregate(setup: str = "all", date_from: str = None, date_to: str = None,
+                          book: str = "paper"):
     """Pooled swing-book performance (AggregateData shape).
 
     `setup="all"` pools every swing setup; otherwise a single setup. Optional
-    inclusive YYYY-MM-DD date bounds on the settle date.
+    inclusive YYYY-MM-DD date bounds on the settle date. `book`: paper|live
+    (live exists for the overnight setup only; multiday is paper-only).
     """
     try:
-        return swing_reader.get_aggregate(setup=setup, date_from=date_from, date_to=date_to)
+        return swing_reader.get_aggregate(setup=setup, date_from=date_from, date_to=date_to, book=book)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
