@@ -189,3 +189,28 @@ def test_default_roots_split_overnight_from_multiday():
     for s in ("mtf_capitulation_revert_long", "low52_capitulation_revert_long",
               "zscore_oversold_revert_long", "crash2d_revert_long"):
         assert r._root_for(s).parts[-2:] == ("multiday_cnc", "intraday-trade-assistant")
+
+
+def test_attributed_mirror_rows_excluded_from_pooled_views(tmp_path):
+    """One composite book position mirrored into a contributor's ledger
+    (attributed=True) must count ONCE in pooled views ('all'/'multiday') but
+    stay visible in the contributing setup's own single-setup edge view."""
+    # Owner ledger: the real book trade (untagged / attributed False).
+    _write_ledger(tmp_path, "zscore_oversold_revert_long", [
+        {"net_pnl_inr": 500.0, "ts_iso": "2026-07-03T15:28:00",
+         "symbol": "NSE:EMUDHRA", "attributed": False},
+    ])
+    # Contributor ledger: the MIRROR of the same position.
+    _write_ledger(tmp_path, "crash2d_revert_long", [
+        {"net_pnl_inr": 500.0, "ts_iso": "2026-07-03T15:28:00",
+         "symbol": "NSE:EMUDHRA", "attributed": True},
+    ])
+    r = SwingReader(base_path=tmp_path)
+
+    pooled = r.get_aggregate("multiday")
+    assert pooled["total_trades"] == 1          # one position, once
+    assert pooled["total_pnl"] == 500.0
+
+    own = r.get_aggregate("crash2d_revert_long")
+    assert own["total_trades"] == 1             # edge view keeps the mirror
+    assert own["trades"][0]["attributed"] is True

@@ -95,9 +95,18 @@ class SwingReader:
         else:
             setups = [setup]
 
+        # Multi-day composite attribution: when one book position is flagged by
+        # several setups, its PnL is MIRRORED into every contributor's ledger
+        # (rows with attributed=True) so each setup's standalone edge stays
+        # measurable. In POOLED views (2+ setups) those mirrors would count the
+        # same position twice — skip them; the owner's untagged row carries the
+        # book PnL. Single-setup views keep mirrors (that's the edge view).
+        pooled = len(setups) > 1
         rows: List[Dict] = []  # {setup, pnl, date}
         for s in setups:
             for t in self._ledger_trades(s):
+                if pooled and t.get("attributed"):
+                    continue
                 ts = str(t.get("ts_iso", ""))
                 if len(ts) < 10:
                     continue
@@ -116,6 +125,7 @@ class SwingReader:
                     "exit_price": t.get("exit_price"),
                     "exit_reason": t.get("exit_reason"),
                     "qty": t.get("qty"),
+                    "attributed": bool(t["attributed"]) if t.get("attributed") is not None else None,
                 })
 
         total_pnl = sum(r["pnl"] for r in rows)
@@ -169,6 +179,9 @@ class SwingReader:
             "exit": r["exit_price"] if r["exit_price"] is not None else 0,
             "qty": r["qty"] if r["qty"] is not None else 0,
             "date": r["date"],
+            # True on mirror rows (single-setup edge view only; pooled views
+            # exclude mirrors before this point). Lets the UI badge them.
+            "attributed": r.get("attributed"),
         } for r in rows]
 
         return {
