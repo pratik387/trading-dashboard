@@ -858,6 +858,15 @@ async def overnight_summary(book: str = "paper"):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/overnight/paper-open")
+async def overnight_paper_open():
+    """Paper book's OPEN positions: latest entry run's fires at Rs1L idealized."""
+    try:
+        return overnight_reader.get_paper_open()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/overnight/candidates")
 async def overnight_candidates(session_date: Optional[str] = None):
     """Pre-filtered candidate list for `session_date` (default: latest)."""

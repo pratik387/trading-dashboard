@@ -602,6 +602,19 @@ export async function fetchOvernightHistoryPool(date: string): Promise<Overnight
   return res.json();
 }
 
+export interface OvernightPaperOpen {
+  session_date: string | null;
+  written_at: string | null;
+  fires: { symbol: string; product: string; leverage: number; entry_price: number;
+           paper_qty: number; paper_notional: number }[];
+}
+
+export async function fetchOvernightPaperOpen(): Promise<OvernightPaperOpen> {
+  const res = await fetch(`${API_BASE}/api/overnight/paper-open`);
+  if (!res.ok) throw new Error("Failed to fetch paper open positions");
+  return res.json();
+}
+
 export async function fetchOvernightHistoryLedger(
   date: string, limit?: number, book: "live" | "paper" = "paper",
 ): Promise<OvernightLedger> {

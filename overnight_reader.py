@@ -216,6 +216,28 @@ class OvernightReader:
             "loaded_at": _file_mtime_iso(path),
         }
 
+    def get_paper_open(self) -> Dict:
+        """Fires from the latest entry run with idealized Rs1L entries — the
+        paper book's OPEN view (the ledger only materializes them at the next
+        09:45 reconstruction). Every fire is included (taken/capped/rejected)."""
+        path = self.state_dir / "overnight_paper_open.json"
+        data = _load_json(path)
+        fires = data.get("fires", [])
+        out = []
+        for f in fires:
+            entry = float(f.get("entry_price") or 0.0)
+            lev = float(f.get("leverage") or 1.0)
+            qty = int((100000.0 * lev) // entry) if entry > 0 else 0
+            out.append({**f, "paper_qty": qty,
+                        "paper_notional": round(qty * entry, 2)})
+        return {
+            "session_date": data.get("session_date"),
+            "written_at": data.get("written_at"),
+            "fires": out,
+            "loaded_from": str(path.relative_to(self.base_path)) if path.exists() else None,
+            "loaded_at": _file_mtime_iso(path),
+        }
+
     # ─── Summary ───────────────────────────────────────────────────────
 
     def get_summary(self, book: str = "paper", as_of: Optional[str] = None) -> Dict:

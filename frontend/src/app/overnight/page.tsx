@@ -15,6 +15,8 @@ import {
   fetchOvernightHistoryDates,
   fetchOvernightHistoryPool,
   fetchOvernightHistoryLedger,
+  fetchOvernightPaperOpen,
+  OvernightPaperOpen,
   fetchOvernightHistorySummary,
 } from "@/lib/api";
 import {
@@ -40,6 +42,7 @@ export default function OvernightPage() {
   // Which tripwire ledger to read: real-money fills vs Rs1L idealized paper.
   // Only applies in live mode — archives predate the live/paper split.
   const [book, setBook] = useState<"live" | "paper">("live");
+  const [paperOpen, setPaperOpen] = useState<OvernightPaperOpen | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
@@ -60,6 +63,9 @@ export default function OvernightPage() {
         setLedger(l);
         setSummary(s);
         setCron(ch);
+        if (book === "paper") {
+          try { setPaperOpen(await fetchOvernightPaperOpen()); } catch { setPaperOpen(null); }
+        }
       } else {
         const [p, l, s] = await Promise.all([
           fetchOvernightHistoryPool(selectedDate),
@@ -280,6 +286,35 @@ export default function OvernightPage() {
 
       {/* Panel 1b: Closed today (t1_settling — sold today, awaiting T+1 settle) */}
       {pool && (!isLive || book === "live") && <ClosedTodayPanel pool={pool} />}
+
+      {/* Paper book: open fires at Rs1L idealized (settle at next 09:45 reconstruction) */}
+      {isLive && book === "paper" && paperOpen && paperOpen.fires.length > 0 && (
+        <div className="rounded-lg border bg-white dark:bg-gray-900 p-4">
+          <div className="text-sm font-semibold mb-1">
+            Paper Open Positions
+            <span className="ml-2 text-xs font-normal text-gray-500">
+              entered {paperOpen.session_date} · ₹1L idealized/fire · settles at next 09:45 reconstruction
+            </span>
+          </div>
+          <table className="w-full text-sm">
+            <thead className="text-left text-xs text-gray-500">
+              <tr><th className="py-1">Symbol</th><th>Product</th><th>Lev</th><th>Entry (15:25)</th><th>Qty</th><th>Notional</th></tr>
+            </thead>
+            <tbody>
+              {paperOpen.fires.map((f) => (
+                <tr key={f.symbol} className="border-t">
+                  <td className="py-1 font-medium">{f.symbol}</td>
+                  <td>{f.product}</td>
+                  <td>{f.leverage.toFixed(2)}x</td>
+                  <td>{f.entry_price.toFixed(2)}</td>
+                  <td>{f.paper_qty}</td>
+                  <td>{formatINR(f.paper_notional)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* Panel 2: Trade ledger */}
       {ledger && summary && (
