@@ -14,8 +14,6 @@ import {
 } from "@/lib/api";
 import { Layers, RefreshCw, Radio } from "lucide-react";
 
-const REFRESH_INTERVAL_MS = 30000; // 30s — marks open positions to the latest price
-
 const SETUP_LABELS: Record<string, string> = {
   mtf_capitulation_revert_long: "mtf",
   low52_capitulation_revert_long: "low52",
@@ -117,7 +115,6 @@ export default function MultidayPage() {
   const [book, setBook] = useState<MultidayBook | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [autoRefresh, setAutoRefresh] = useState(true);
   const [lastLoaded, setLastLoaded] = useState<string>("");
 
   // History tab data source (formerly /historical's multiday family).
@@ -141,11 +138,6 @@ export default function MultidayPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
-  useEffect(() => {
-    if (!autoRefresh) return;
-    const id = setInterval(load, REFRESH_INTERVAL_MS);
-    return () => clearInterval(id);
-  }, [autoRefresh, load]);
 
   const s = book?.summary;
   const pnl = s?.total_live_pnl ?? null;
@@ -173,10 +165,6 @@ export default function MultidayPage() {
         </div>
         {activeTab === "book" && (
           <div className="flex items-center gap-2 flex-wrap">
-            <label className="flex items-center gap-1.5 text-sm cursor-pointer">
-              <input type="checkbox" checked={autoRefresh} onChange={(e) => setAutoRefresh(e.target.checked)} className="rounded" />
-              Auto-refresh (30s)
-            </label>
             <button onClick={load} className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border hover:bg-gray-50 dark:hover:bg-gray-800">
               <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} /> Refresh
             </button>

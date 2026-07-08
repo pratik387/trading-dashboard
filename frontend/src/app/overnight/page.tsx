@@ -23,8 +23,6 @@ import {
   Radio,
 } from "lucide-react";
 
-const REFRESH_INTERVAL_MS = 30000; // 30s — cron-driven setup, no need for tick speed
-
 export default function OvernightPage() {
   // Page-level tabs: Book = today's lifecycle (slot pool, cron health,
   // paper-open); History = ledger/daily/date-range aggregate with a
@@ -38,7 +36,6 @@ export default function OvernightPage() {
   const [paperOpen, setPaperOpen] = useState<OvernightPaperOpen | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [autoRefresh, setAutoRefresh] = useState(true);
   const [lastLoaded, setLastLoaded] = useState<string>("");
 
   const loadAll = useCallback(async () => {
@@ -67,13 +64,6 @@ export default function OvernightPage() {
   useEffect(() => {
     loadAll();
   }, [loadAll]);
-
-  useEffect(() => {
-    // Auto-refresh only drives the Book tab -- HistoryView manages its own loads.
-    if (!autoRefresh || activeTab !== "book") return;
-    const id = setInterval(loadAll, REFRESH_INTERVAL_MS);
-    return () => clearInterval(id);
-  }, [autoRefresh, activeTab, loadAll]);
 
   // History tab data source: pooled overnight ledger aggregate, per book.
   const historyFetcher = useCallback(
@@ -135,15 +125,6 @@ export default function OvernightPage() {
               </button>
             </div>
 
-            <label className="flex items-center gap-1.5 text-sm cursor-pointer">
-              <input
-                type="checkbox"
-                checked={autoRefresh}
-                onChange={(e) => setAutoRefresh(e.target.checked)}
-                className="rounded"
-              />
-              Auto-refresh (30s)
-            </label>
             <button
               onClick={loadAll}
               className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border hover:bg-gray-50 dark:hover:bg-gray-800"
