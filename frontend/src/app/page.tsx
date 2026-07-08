@@ -53,8 +53,7 @@ function getInstanceWsUrl(instance: Instance | undefined): string | null {
   return `http://${host}:${instance.port}`;
 }
 
-// An instance is "archived" when its engine isn't reachable (old/stale
-// configs kept in instances.json). Hidden by default behind a toggle.
+// Instances that are not reachable (old/stale configs in instances.json) are never shown.
 function isActiveInstance(i: Instance): boolean {
   return i.status === "ok" || i.status === "unhealthy";
 }
@@ -65,7 +64,6 @@ export default function HomePage() {
   // (moved here from the old /historical page's intraday family).
   const [activeTab, setActiveTab] = useState<"live" | "history">("live");
   const [historyConfigType, setHistoryConfigType] = useState<"fixed" | "live">("fixed");
-  const [showArchived, setShowArchived] = useState(false);
   const [instances, setInstances] = useState<Instance[]>([]);
   const [selectedInstance, setSelectedInstance] = useState<string | null>(null);
   const [status, setStatus] = useState<InstanceStatus | null>(null);
@@ -75,7 +73,7 @@ export default function HomePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isOffline, setIsOffline] = useState(false);  // Instance not running
-  const [autoRefresh, setAutoRefresh] = useState(false);
+  const [autoRefresh, setAutoRefresh] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<string>("");
 
   // Track if we're using WebSocket (true) or HTTP polling fallback (false)
@@ -360,12 +358,10 @@ export default function HomePage() {
     [historyConfigType]
   );
 
-  // Hide archived (offline/stale) instances unless toggled on; never hide
-  // the currently selected one.
+  // Never show offline/stale instances; always show the currently selected one.
   const visibleInstances = instances.filter(
-    (i) => showArchived || isActiveInstance(i) || i.name === selectedInstance
+    (i) => isActiveInstance(i) || i.name === selectedInstance
   );
-  const archivedCount = instances.length - visibleInstances.length;
 
   return (
     <div className="space-y-4">
@@ -476,17 +472,6 @@ export default function HomePage() {
         ))}
         {instances.length === 0 && (
           <span className="text-gray-500 text-sm">No instances found</span>
-        )}
-        {(archivedCount > 0 || showArchived) && instances.length > 0 && (
-          <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer ml-1">
-            <input
-              type="checkbox"
-              checked={showArchived}
-              onChange={(e) => setShowArchived(e.target.checked)}
-              className="rounded"
-            />
-            Show archived{archivedCount > 0 ? ` (${archivedCount})` : ""}
-          </label>
         )}
       </div>
 
