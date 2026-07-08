@@ -2,12 +2,15 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { MetricCard } from "@/components/MetricCard";
+import { Tabs } from "@/components/Tabs";
+import { HistoryView } from "@/components/HistoryView";
 import { cn, formatINR } from "@/lib/utils";
 import {
   MultidayBook,
   MultidayOpenPosition,
   MultidayPendingPosition,
   fetchMultidayBook,
+  fetchSwingAggregate,
 } from "@/lib/api";
 import { Layers, RefreshCw, Radio } from "lucide-react";
 
@@ -108,11 +111,21 @@ function ExitCard({ date, rows }: { date: string; rows: MultidayOpenPosition[] }
 }
 
 export default function MultidayPage() {
+  // Page-level tabs: Book = open positions by exit date; History = pooled
+  // per-setup aggregate (paper only — no live multiday book yet).
+  const [activeTab, setActiveTab] = useState<"book" | "history">("book");
   const [book, setBook] = useState<MultidayBook | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [lastLoaded, setLastLoaded] = useState<string>("");
+
+  // History tab data source (formerly /historical's multiday family).
+  const historyFetcher = useCallback(
+    (dateFrom?: string, dateTo?: string) =>
+      fetchSwingAggregate("multiday", dateFrom, dateTo, "paper"),
+    []
+  );
 
   const load = useCallback(async () => {
     try {
@@ -134,19 +147,6 @@ export default function MultidayPage() {
     return () => clearInterval(id);
   }, [autoRefresh, load]);
 
-  if (loading && !book) {
-    return <div className="flex items-center justify-center h-64 text-gray-400">Loading multi-day book...</div>;
-  }
-  if (error) {
-    return (
-      <div className="rounded-lg border border-red-200 bg-red-50 dark:bg-red-900/20 dark:border-red-900 p-4 text-sm text-red-700 dark:text-red-300">
-        <div className="font-medium mb-1">Failed to load multi-day book</div>
-        <div>{error}</div>
-        <button onClick={load} className="mt-2 px-3 py-1 rounded bg-red-100 hover:bg-red-200 dark:bg-red-800 text-xs">Retry</button>
-      </div>
-    );
-  }
-
   const s = book?.summary;
   const pnl = s?.total_live_pnl ?? null;
 
@@ -161,7 +161,7 @@ export default function MultidayPage() {
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <Layers className="w-6 h-6" />
-            Multi-Day Book
+            Multi-Day
             <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300 flex items-center gap-1 font-normal">
               <Radio className="w-3 h-3" /> Live
             </span>
@@ -171,17 +171,47 @@ export default function MultidayPage() {
             {lastLoaded && <span className="ml-2">· Last loaded {lastLoaded}</span>}
           </p>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <label className="flex items-center gap-1.5 text-sm cursor-pointer">
-            <input type="checkbox" checked={autoRefresh} onChange={(e) => setAutoRefresh(e.target.checked)} className="rounded" />
-            Auto-refresh (30s)
-          </label>
-          <button onClick={load} className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border hover:bg-gray-50 dark:hover:bg-gray-800">
-            <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} /> Refresh
-          </button>
-        </div>
+        {activeTab === "book" && (
+          <div className="flex items-center gap-2 flex-wrap">
+            <label className="flex items-center gap-1.5 text-sm cursor-pointer">
+              <input type="checkbox" checked={autoRefresh} onChange={(e) => setAutoRefresh(e.target.checked)} className="rounded" />
+              Auto-refresh (30s)
+            </label>
+            <button onClick={load} className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border hover:bg-gray-50 dark:hover:bg-gray-800">
+              <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} /> Refresh
+            </button>
+          </div>
+        )}
       </div>
 
+      {/* Page tabs */}
+      <Tabs
+        tabs={[
+          { id: "book" as const, label: "Book" },
+          { id: "history" as const, label: "History" },
+        ]}
+        active={activeTab}
+        onChange={setActiveTab}
+      />
+
+      {activeTab === "history" && (
+        <HistoryView family="multiday" fetcher={historyFetcher} />
+      )}
+
+      {activeTab === "book" && loading && !book && (
+        <div className="flex items-center justify-center h-64 text-gray-400">Loading multi-day book...</div>
+      )}
+
+      {activeTab === "book" && error && (
+        <div className="rounded-lg border border-red-200 bg-red-50 dark:bg-red-900/20 dark:border-red-900 p-4 text-sm text-red-700 dark:text-red-300">
+          <div className="font-medium mb-1">Failed to load multi-day book</div>
+          <div>{error}</div>
+          <button onClick={load} className="mt-2 px-3 py-1 rounded bg-red-100 hover:bg-red-200 dark:bg-red-800 text-xs">Retry</button>
+        </div>
+      )}
+
+      {activeTab === "book" && !error && !(loading && !book) && (
+      <>
       {/* Summary */}
       {s && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -261,6 +291,8 @@ export default function MultidayPage() {
           </div>
         )}
       </section>
+      </>
+      )}
     </div>
   );
 }

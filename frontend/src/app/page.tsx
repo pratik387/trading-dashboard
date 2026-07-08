@@ -3,8 +3,11 @@
 import { useState, useEffect, useCallback } from "react";
 import { MetricCard } from "@/components/MetricCard";
 import { ExitButton } from "@/components/AdminPanel";
+import { Tabs } from "@/components/Tabs";
+import { HistoryView } from "@/components/HistoryView";
 import { cn, formatINR, formatPct, formatTime } from "@/lib/utils";
 import {
+  fetchAggregate,
   Instance,
   InstanceStatus,
   InstancePosition,
@@ -50,8 +53,19 @@ function getInstanceWsUrl(instance: Instance | undefined): string | null {
   return `http://${host}:${instance.port}`;
 }
 
+// An instance is "archived" when its engine isn't reachable (old/stale
+// configs kept in instances.json). Hidden by default behind a toggle.
+function isActiveInstance(i: Instance): boolean {
+  return i.status === "ok" || i.status === "unhealthy";
+}
+
 export default function HomePage() {
   const { adminToken, setAdminToken, isAdmin, clearToken } = useAdmin();
+  // Page-level tabs: Live = realtime instance view, History = aggregate view
+  // (moved here from the old /historical page's intraday family).
+  const [activeTab, setActiveTab] = useState<"live" | "history">("live");
+  const [historyConfigType, setHistoryConfigType] = useState<"fixed" | "live">("fixed");
+  const [showArchived, setShowArchived] = useState(false);
   const [instances, setInstances] = useState<Instance[]>([]);
   const [selectedInstance, setSelectedInstance] = useState<string | null>(null);
   const [status, setStatus] = useState<InstanceStatus | null>(null);
@@ -338,16 +352,32 @@ export default function HomePage() {
   const unrealizedPnl = status?.unrealized_pnl || 0;
   const totalPnl = realizedPnl + unrealizedPnl;
 
+  // History tab data source — the intraday date-range aggregate (per config),
+  // formerly the /historical page's intraday family.
+  const historyFetcher = useCallback(
+    (dateFrom?: string, dateTo?: string) =>
+      fetchAggregate(historyConfigType, dateFrom, dateTo),
+    [historyConfigType]
+  );
+
+  // Hide archived (offline/stale) instances unless toggled on; never hide
+  // the currently selected one.
+  const visibleInstances = instances.filter(
+    (i) => showArchived || isActiveInstance(i) || i.name === selectedInstance
+  );
+  const archivedCount = instances.length - visibleInstances.length;
+
   return (
     <div className="space-y-4">
       {/* Header Row */}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold flex items-center gap-2">
           <Circle className="w-3 h-3 fill-red-500 text-red-500 animate-pulse" />
-          Live Trading
+          Intraday
         </h1>
 
-        {/* Refresh controls */}
+        {/* Refresh controls (Live tab only) */}
+        {activeTab === "live" && (
         <div className="flex items-center gap-3">
           {/* WebSocket status indicator */}
           {autoRefresh && useWebSocket && (
@@ -392,11 +422,41 @@ export default function HomePage() {
             <RefreshCw className={cn("w-5 h-5", loading && "animate-spin")} />
           </button>
         </div>
+        )}
       </div>
 
+      {/* Page tabs: Live (realtime instances) | History (date-range aggregate) */}
+      <Tabs
+        tabs={[
+          { id: "live" as const, label: "Live" },
+          { id: "history" as const, label: "History" },
+        ]}
+        active={activeTab}
+        onChange={setActiveTab}
+      />
+
+      {activeTab === "history" && (
+        <HistoryView
+          family="intraday"
+          fetcher={historyFetcher}
+          headerExtra={
+            <select
+              value={historyConfigType}
+              onChange={(e) => setHistoryConfigType(e.target.value as "fixed" | "live")}
+              className="text-sm border rounded-lg px-3 py-2 bg-white dark:bg-gray-800 font-medium"
+            >
+              <option value="fixed">Fixed (5L)</option>
+              <option value="live">Live</option>
+            </select>
+          }
+        />
+      )}
+
+      {activeTab === "live" && (
+      <>
       {/* Instance Selector */}
-      <div className="flex flex-wrap gap-2">
-        {instances.map((instance) => (
+      <div className="flex flex-wrap gap-2 items-center">
+        {visibleInstances.map((instance) => (
           <button
             key={instance.name}
             onClick={() => setSelectedInstance(instance.name)}
@@ -416,6 +476,17 @@ export default function HomePage() {
         ))}
         {instances.length === 0 && (
           <span className="text-gray-500 text-sm">No instances found</span>
+        )}
+        {(archivedCount > 0 || showArchived) && instances.length > 0 && (
+          <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer ml-1">
+            <input
+              type="checkbox"
+              checked={showArchived}
+              onChange={(e) => setShowArchived(e.target.checked)}
+              className="rounded"
+            />
+            Show archived{archivedCount > 0 ? ` (${archivedCount})` : ""}
+          </label>
         )}
       </div>
 
@@ -976,6 +1047,8 @@ export default function HomePage() {
             )}
           </p>
         </>
+      )}
+      </>
       )}
     </div>
   );
