@@ -4,13 +4,13 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { useAdmin } from "@/lib/AdminContext";
-import { Server, History, Key, Moon, Layers } from "lucide-react";
+import { Server, Key, Moon, Layers } from "lucide-react";
 
+// One entry per trading book — each page owns its own Live/Book + History tabs.
 const navItems = [
-  { href: "/", label: "Instances", icon: Server },
+  { href: "/", label: "Intraday", icon: Server },
   { href: "/overnight", label: "Overnight", icon: Moon },
   { href: "/multiday", label: "Multi-Day", icon: Layers },
-  { href: "/historical", label: "Historical", icon: History },
 ];
 
 export function Navbar() {
