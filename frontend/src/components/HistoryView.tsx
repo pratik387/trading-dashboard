@@ -77,7 +77,9 @@ export function HistoryView({
   const [data, setData] = useState<AggregateData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<SubTab>("overview");
+  const [activeTab, setActiveTab] = useState<SubTab>(
+    family === "overnight" ? "trades" : "overview"
+  );
   const [dateFrom, setDateFrom] = useState<string>("");
   const [dateTo, setDateTo] = useState<string>("");
   // Overnight only: real-money live ledger vs Rs1L idealized paper.
@@ -116,7 +118,11 @@ export function HistoryView({
 
   const tabs = [
     { id: "overview" as SubTab, label: "Overview", icon: TrendingUp },
-    { id: "setups" as SubTab, label: "Setups", icon: Target },
+    // Setups tab is only meaningful for multi-setup families (intraday / multiday).
+    // Overnight has a single setup, so the breakdown is redundant — hide it.
+    ...(family !== "overnight"
+      ? [{ id: "setups" as SubTab, label: "Setups", icon: Target }]
+      : []),
     { id: "daily" as SubTab, label: "Daily", icon: Calendar },
     { id: "trades" as SubTab, label: "Trades", icon: BarChart3 },
   ];
@@ -460,33 +466,59 @@ function DailyTab({ data }: { data: AggregateData }) {
 
 // Shared per-trade table (used by the single-table view and each per-exit-date
 // group in the multiday view).
-function TradeTable({ trades }: { trades: HistoricalTrade[] }) {
+//
+// Columns: Symbol | Setup* | Date | Qty | Entry | Exit | PnL
+// (* Setup column hidden for overnight — single-setup family, redundant.)
+// Entry/Exit/Qty render "—" when absent or zero (intraday rows may omit them).
+// A small "mirror" badge appears when attributed===true (composite book rows).
+function TradeTable({ trades, family }: { trades: HistoricalTrade[]; family: HistoryFamily }) {
+  const showSetup = family !== "overnight";
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg border shadow-sm overflow-x-auto">
-      <table className="w-full text-sm">
+      <table className="w-full text-sm min-w-[640px]">
         <thead className="bg-gray-50 dark:bg-gray-900">
           <tr>
             <th className="px-4 py-3 text-left font-medium">Symbol</th>
-            <th className="px-4 py-3 text-left font-medium">Setup</th>
+            {showSetup && <th className="px-4 py-3 text-left font-medium">Setup</th>}
+            <th className="px-4 py-3 text-left font-medium">Date</th>
+            <th className="px-4 py-3 text-right font-medium">Qty</th>
+            <th className="px-4 py-3 text-right font-medium">Entry</th>
+            <th className="px-4 py-3 text-right font-medium">Exit</th>
             <th className="px-4 py-3 text-right font-medium">PnL</th>
-            <th className="px-4 py-3 text-left font-medium">Exit Reason</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-          {trades.map((t, idx) => (
-            <tr key={`${t.symbol}-${idx}`} className="hover:bg-gray-50 dark:hover:bg-gray-900">
-              <td className="px-4 py-3 font-medium">{t.symbol}</td>
-              <td className="px-4 py-3">{t.setup}</td>
-              <td
-                className={`px-4 py-3 text-right font-medium ${
-                  t.pnl >= 0 ? "text-green-600" : "text-red-600"
-                }`}
-              >
-                {formatINR(t.pnl)}
-              </td>
-              <td className="px-4 py-3">{t.exit_reason}</td>
-            </tr>
-          ))}
+          {trades.map((t, idx) => {
+            // Treat entry/exit as absent when 0 or null — intraday rows may omit them.
+            const entryStr = t.entry != null && t.entry > 0 ? t.entry.toFixed(2) : "—";
+            const exitStr  = t.exit  != null && t.exit  > 0 ? t.exit.toFixed(2)  : "—";
+            const qtyStr   = t.qty   != null               ? String(t.qty)       : "—";
+            const dateStr  = t.date  ? t.date.slice(0, 10)                        : "—";
+            return (
+              <tr key={`${t.symbol}-${idx}`} className="hover:bg-gray-50 dark:hover:bg-gray-900">
+                <td className="px-4 py-3 font-medium">
+                  {t.symbol}
+                  {t.attributed && (
+                    <span className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300">
+                      mirror
+                    </span>
+                  )}
+                </td>
+                {showSetup && <td className="px-4 py-3">{t.setup}</td>}
+                <td className="px-4 py-3">{dateStr}</td>
+                <td className="px-4 py-3 text-right">{qtyStr}</td>
+                <td className="px-4 py-3 text-right">{entryStr}</td>
+                <td className="px-4 py-3 text-right">{exitStr}</td>
+                <td
+                  className={`px-4 py-3 text-right font-medium ${
+                    t.pnl >= 0 ? "text-green-600" : "text-red-600"
+                  }`}
+                >
+                  {formatINR(t.pnl)}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -582,13 +614,13 @@ function TradesTab({ data, family }: { data: AggregateData; family: HistoryFamil
                 {formatINR(g.pnl)}
               </span>
             </h3>
-            <TradeTable trades={g.rows} />
+            <TradeTable trades={g.rows} family={family} />
           </section>
         ))
       ) : (
         <section>
           <h3 className="text-md font-semibold mb-3">All Trades ({trades.length})</h3>
-          <TradeTable trades={trades} />
+          <TradeTable trades={trades} family={family} />
         </section>
       )}
     </div>

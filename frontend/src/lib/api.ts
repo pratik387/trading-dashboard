@@ -160,6 +160,7 @@ export interface HistoricalTrade {
   exit: number;
   qty?: number;
   date?: string; // exit/settle date (YYYY-MM-DD) — present for swing/overnight/multiday
+  attributed?: boolean; // true when this row is a mirror attribution (composite book)
 }
 
 export interface AggregateData {
