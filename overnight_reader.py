@@ -223,6 +223,15 @@ class OvernightReader:
         path = self.state_dir / "overnight_paper_open.json"
         data = _load_json(path)
         fires = data.get("fires", [])
+        # Settled guard: the 09:45 reconstruction writes
+        # reports/overnight_slippage_<session_date>.json when it books these
+        # fires into the paper ledger. Once that exists the positions are NOT
+        # open anymore — without this, yesterday's fires kept showing as open
+        # until the next 15:26 entry overwrote the snapshot (user-reported).
+        sd = data.get("session_date")
+        settled = bool(sd) and (self.base_path / "reports" / f"overnight_slippage_{sd}.json").exists()
+        if settled:
+            fires = []
         out = []
         for f in fires:
             entry = float(f.get("entry_price") or 0.0)
@@ -233,6 +242,7 @@ class OvernightReader:
         return {
             "session_date": data.get("session_date"),
             "written_at": data.get("written_at"),
+            "settled": settled,
             "fires": out,
             "loaded_from": str(path.relative_to(self.base_path)) if path.exists() else None,
             "loaded_at": _file_mtime_iso(path),
