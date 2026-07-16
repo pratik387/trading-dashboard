@@ -78,7 +78,7 @@ export function HistoryView({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<SubTab>(
-    family === "overnight" ? "trades" : "overview"
+    "overview"  // all families land on Overview; Trades is one click away
   );
   const [dateFrom, setDateFrom] = useState<string>("");
   const [dateTo, setDateTo] = useState<string>("");
