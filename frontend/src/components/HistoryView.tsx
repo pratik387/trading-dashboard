@@ -324,7 +324,12 @@ function OverviewTab({ data }: { data: AggregateData }) {
 
 // ============ Setups Tab ============
 function SetupsTab({ data }: { data: AggregateData }) {
-  const setups = data.by_setup || [];
+  // Retired setups (switched off in the engine config) keep their trades in
+  // every aggregate — history must reconcile with the ledger — but sort below
+  // active ones and carry a badge so they aren't read as live edge.
+  const setups = [...(data.by_setup || [])].sort(
+    (a, b) => Number(b.active ?? true) - Number(a.active ?? true)
+  );
 
   if (setups.length === 0) {
     return <div className="text-center py-12 text-gray-500">No setup data available</div>;
@@ -376,8 +381,20 @@ function SetupsTab({ data }: { data: AggregateData }) {
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
               {setups.map((s) => (
-                <tr key={s.setup} className="hover:bg-gray-50 dark:hover:bg-gray-900">
-                  <td className="px-4 py-3 font-medium">{s.setup}</td>
+                <tr
+                  key={s.setup}
+                  className={`hover:bg-gray-50 dark:hover:bg-gray-900 ${
+                    s.active === false ? "opacity-60" : ""
+                  }`}
+                >
+                  <td className="px-4 py-3 font-medium">
+                    {s.setup}
+                    {s.active === false && (
+                      <span className="ml-2 align-middle text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-gray-200 text-gray-500 dark:bg-gray-700 dark:text-gray-400">
+                        retired
+                      </span>
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-right">{s.trades}</td>
                   <td
                     className={`px-4 py-3 text-right font-medium ${

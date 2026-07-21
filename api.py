@@ -227,6 +227,22 @@ def get_capital(config_type: str) -> int | None:
     return CAPITAL_FALLBACK.get(config_type)
 
 
+def get_setup_active_flags() -> Dict[str, bool]:
+    """setup name -> still runs (enabled OR paper_enabled in the engine
+    config). Retired setups stay in history with their real PnL — the UI only
+    badges them. Empty dict when the engine config is unreadable (UI then
+    shows no badges rather than guessing)."""
+    try:
+        cfg = LocalDataReader('fixed').get_config()
+        setups = cfg.get('setups', {}) or {}
+        return {
+            name: bool(sc.get('enabled') or sc.get('paper_enabled'))
+            for name, sc in setups.items() if isinstance(sc, dict)
+        }
+    except Exception:
+        return {}
+
+
 # ============ Response Models ============
 
 class RunInfo(BaseModel):
@@ -380,6 +396,7 @@ async def get_aggregate_summary(config_type: str, date_from: str = None, date_to
         daily_data.sort(key=lambda x: x['date'])
 
         # Format setup stats
+        active_flags = get_setup_active_flags()
         setup_stats = []
         for setup, data in by_setup.items():
             win_rate = data['wins'] / data['count'] * 100 if data['count'] else 0
@@ -390,7 +407,10 @@ async def get_aggregate_summary(config_type: str, date_from: str = None, date_to
                 'pnl': data['pnl'],
                 'wins': data['wins'],
                 'win_rate': win_rate,
-                'avg_pnl': avg_pnl
+                'avg_pnl': avg_pnl,
+                # unknown names default to active (no badge) — only a setup
+                # explicitly switched off in config is marked retired
+                'active': active_flags.get(setup, True) if active_flags else True,
             })
         setup_stats.sort(key=lambda x: x['pnl'], reverse=True)
 

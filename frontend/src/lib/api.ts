@@ -148,6 +148,9 @@ export interface SetupStats {
   wins: number;
   win_rate: number;
   avg_pnl: number;
+  // false when the setup no longer runs (enabled + paper_enabled both off in
+  // the engine config). History keeps its trades; the UI badges it "retired".
+  active?: boolean;
 }
 
 // Trade data from performance.json (historical aggregate)
