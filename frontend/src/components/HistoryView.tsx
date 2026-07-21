@@ -50,7 +50,8 @@ export type HistoryBook = "live" | "paper";
 export type HistoryFetcher = (
   dateFrom: string | undefined,
   dateTo: string | undefined,
-  book: HistoryBook
+  book: HistoryBook,
+  includeRetired?: boolean
 ) => Promise<AggregateData>;
 
 type SubTab = "overview" | "setups" | "daily" | "trades";
@@ -67,11 +68,15 @@ export function HistoryView({
   family,
   fetcher,
   showBookToggle = false,
+  showRetiredToggle = false,
   headerExtra,
 }: {
   family: HistoryFamily;
   fetcher: HistoryFetcher;
   showBookToggle?: boolean;
+  // families whose config can retire setups (intraday) get an
+  // include/exclude-retired filter over the whole aggregate
+  showRetiredToggle?: boolean;
   headerExtra?: ReactNode;
 }) {
   const [data, setData] = useState<AggregateData | null>(null);
@@ -84,6 +89,8 @@ export function HistoryView({
   const [dateTo, setDateTo] = useState<string>("");
   // Overnight only: real-money live ledger vs Rs1L idealized paper.
   const [book, setBook] = useState<HistoryBook>(showBookToggle ? "live" : "paper");
+  // Default ON: full history reconciles with the ledger. Off = active book only.
+  const [includeRetired, setIncludeRetired] = useState(true);
 
   const loadData = useCallback(
     async (resetFilters = false) => {
@@ -91,7 +98,7 @@ export function HistoryView({
         setLoading(true);
         const from = resetFilters ? undefined : dateFrom || undefined;
         const to = resetFilters ? undefined : dateTo || undefined;
-        const result = await fetcher(from, to, book);
+        const result = await fetcher(from, to, book, includeRetired);
         setData(result);
         setError(null);
 
@@ -107,7 +114,7 @@ export function HistoryView({
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [fetcher, book, dateFrom, dateTo]
+    [fetcher, book, dateFrom, dateTo, includeRetired]
   );
 
   useEffect(() => {
@@ -115,6 +122,13 @@ export function HistoryView({
     // Reload from scratch when the data source changes (fetcher identity / book).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fetcher, book]);
+
+  useEffect(() => {
+    if (!showRetiredToggle) return;
+    // Keep the current date filter when flipping the retired filter.
+    loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [includeRetired]);
 
   const tabs = [
     { id: "overview" as SubTab, label: "Overview", icon: TrendingUp },
@@ -170,6 +184,17 @@ export function HistoryView({
             </div>
           )}
           {headerExtra}
+          {showRetiredToggle && (
+            <label className="flex items-center gap-1.5 text-sm text-gray-600 dark:text-gray-300 border rounded-lg px-3 py-2 bg-white dark:bg-gray-800 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={includeRetired}
+                onChange={(e) => setIncludeRetired(e.target.checked)}
+                className="accent-blue-600"
+              />
+              Include retired
+            </label>
+          )}
           <input
             type="date"
             value={dateFrom}

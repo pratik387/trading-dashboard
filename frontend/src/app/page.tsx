@@ -353,8 +353,8 @@ export default function HomePage() {
   // History tab data source — the intraday date-range aggregate (per config),
   // formerly the /historical page's intraday family.
   const historyFetcher = useCallback(
-    (dateFrom?: string, dateTo?: string) =>
-      fetchAggregate(historyConfigType, dateFrom, dateTo),
+    (dateFrom?: string, dateTo?: string, _book?: unknown, includeRetired?: boolean) =>
+      fetchAggregate(historyConfigType, dateFrom, dateTo, includeRetired ?? true),
     [historyConfigType]
   );
 
@@ -435,6 +435,7 @@ export default function HomePage() {
         <HistoryView
           family="intraday"
           fetcher={historyFetcher}
+          showRetiredToggle
           headerExtra={
             <select
               value={historyConfigType}

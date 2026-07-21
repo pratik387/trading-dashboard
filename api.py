@@ -302,10 +302,16 @@ async def list_runs(config_type: str, limit: int = 50):
 
 
 @app.get("/api/runs/{config_type}/aggregate")
-async def get_aggregate_summary(config_type: str, date_from: str = None, date_to: str = None):
+async def get_aggregate_summary(config_type: str, date_from: str = None, date_to: str = None,
+                                include_retired: bool = True):
     """
     Get aggregated summary across all runs for a config type.
     Optionally filter by date range (YYYY-MM-DD format).
+
+    include_retired=false recomputes every metric from only the setups still
+    running (enabled or paper_enabled in the engine config). Per-trade fees are
+    not recorded, so filtered fees are allocated by trade count — a close
+    estimate given the flat per-order component dominates intraday costs.
     """
     try:
         reader = get_reader(config_type)
@@ -347,16 +353,44 @@ async def get_aggregate_summary(config_type: str, date_from: str = None, date_to
         # Fallback capital from config type (for old runs without capital in performance.json)
         fallback_capital = get_capital(config_type)
 
+        active_flags = get_setup_active_flags()
+
+        def _is_active(setup_name: str) -> bool:
+            return active_flags.get(setup_name, True) if active_flags else True
+
+        filtering = (not include_retired) and bool(active_flags)
+
         for run in runs:
             run_id = run['run_id']
             summary = reader.get_run_summary(effective_type, run_id)
 
-            run_pnl = summary.get('total_pnl', 0)
+            run_by_setup = summary.get('by_setup', {})
+            if filtering:
+                run_by_setup = {s: d for s, d in run_by_setup.items() if _is_active(s)}
+                run_pnl = sum(d.get('pnl', 0) for d in run_by_setup.values())
+                run_trades_n = sum(d.get('count', 0) for d in run_by_setup.values())
+                run_wins = sum(d.get('wins', 0) for d in run_by_setup.values())
+                run_losers = run_trades_n - run_wins
+                all_n = summary.get('total_trades', 0)
+                # per-trade fees are not recorded — allocate by trade count
+                run_fees = summary.get('total_fees', 0) * (run_trades_n / all_n) if all_n else 0
+                run_trades_list = [t for t in summary.get('trades', [])
+                                   if _is_active(t.get('setup', 'unknown'))]
+                run_win_rate = run_wins / run_trades_n * 100 if run_trades_n else 0
+            else:
+                run_pnl = summary.get('total_pnl', 0)
+                run_trades_n = summary.get('total_trades', 0)
+                run_wins = summary.get('winners', 0)
+                run_losers = summary.get('losers', 0)
+                run_fees = summary.get('total_fees', 0)
+                run_trades_list = summary.get('trades', [])
+                run_win_rate = summary.get('win_rate', 0)
+
             total_pnl += run_pnl
-            total_trades += summary.get('total_trades', 0)
-            total_winners += summary.get('winners', 0)
-            total_losers += summary.get('losers', 0)
-            total_fees += summary.get('total_fees', 0)
+            total_trades += run_trades_n
+            total_winners += run_wins
+            total_losers += run_losers
+            total_fees += run_fees
 
             # Get capital for this run (from performance.json, fallback to config map)
             run_capital = summary.get('capital') or fallback_capital
@@ -369,10 +403,10 @@ async def get_aggregate_summary(config_type: str, date_from: str = None, date_to
                 runs_with_capital += 1
 
             # Collect trades
-            all_trades.extend(summary.get('trades', []))
+            all_trades.extend(run_trades_list)
 
             # Aggregate by setup
-            for setup, data in summary.get('by_setup', {}).items():
+            for setup, data in run_by_setup.items():
                 if setup not in by_setup:
                     by_setup[setup] = {'pnl': 0, 'count': 0, 'wins': 0}
                 by_setup[setup]['pnl'] += data.get('pnl', 0)
@@ -386,17 +420,16 @@ async def get_aggregate_summary(config_type: str, date_from: str = None, date_to
                 'pnl': run_pnl,
                 'capital': run_capital,
                 'return_pct': run_return_pct,
-                'trades': summary.get('total_trades', 0),
-                'winners': summary.get('winners', 0),
-                'losers': summary.get('losers', 0),
-                'win_rate': summary.get('win_rate', 0)
+                'trades': run_trades_n,
+                'winners': run_wins,
+                'losers': run_losers,
+                'win_rate': run_win_rate
             })
 
         # Sort daily data by date
         daily_data.sort(key=lambda x: x['date'])
 
-        # Format setup stats
-        active_flags = get_setup_active_flags()
+        # Format setup stats (active_flags computed above the run loop)
         setup_stats = []
         for setup, data in by_setup.items():
             win_rate = data['wins'] / data['count'] * 100 if data['count'] else 0

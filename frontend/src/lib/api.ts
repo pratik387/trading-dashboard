@@ -193,12 +193,14 @@ export interface AggregateData {
 export async function fetchAggregate(
   configType: string,
   dateFrom?: string,
-  dateTo?: string
+  dateTo?: string,
+  includeRetired: boolean = true
 ): Promise<AggregateData> {
   let url = `${API_BASE}/api/runs/${configType}/aggregate`;
   const params = new URLSearchParams();
   if (dateFrom) params.append("date_from", dateFrom);
   if (dateTo) params.append("date_to", dateTo);
+  if (!includeRetired) params.append("include_retired", "false");
   if (params.toString()) url += `?${params.toString()}`;
 
   const res = await fetch(url);
