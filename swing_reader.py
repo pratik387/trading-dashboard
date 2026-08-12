@@ -65,28 +65,39 @@ class SwingReader:
             return self.roots[setup]
         return _default_root_for(setup)
 
-    def _ledger_trades(self, setup: str, book: str = "paper") -> List[Dict]:
-        # book="live" selects the real-money ledger. Only the overnight setup
-        # trades live so far — multiday setups have no live ledger yet, so
-        # book="live" yields [] for them (file absent) rather than erroring.
+    def _ledger_trades(self, setup: str, book: str = "paper",
+                       regime: str = "current") -> List[Dict]:
+        """Per-trade rows for one setup.
+
+        `regime` selects which era to read — the two are deliberately NOT pooled:
+
+          "current"  (default) the live ledger only — what the History page shows
+          "archived"           previous regimes only — what the Archive tab shows
+          "all"                both, oldest first (research use; see warning)
+
+        Why the split exists: on 2026-08-12 the multi-day book's capital
+        management changed (flat Rs1L margin + take-all caps + composite ordering
+        -> vol-targeted sizing on a Rs10L risk budget + cluster caps +
+        unbiased-hash ordering, crash2d disabled). Median notional halved and 40
+        of 121 historical positions would have been capped out, so a statistic
+        computed ACROSS the boundary is meaningless — pooling regimes had already
+        produced a misleading PF in the overnight book.
+
+        The engine reset its ledgers at that boundary so DecayTripwire's rolling
+        PF stays on one regime; the archived files moved to state/archive/. This
+        reader can see both, but "current" is the default so no page accidentally
+        averages across eras. Rows carry `regime` and `archived` either way.
+
+        book="live" selects the real-money ledger and NEVER reads the paper
+        archive. Only the overnight setup trades live so far.
+        """
+        if regime not in ("current", "archived", "all"):
+            raise ValueError(f"unknown regime '{regime}' (expected current/archived/all)")
         suffix = "_live" if book == "live" else ""
         state = self._root_for(setup) / "state"
         out: List[Dict] = []
 
-        # ARCHIVED regimes first (oldest -> newest), then the live ledger.
-        #
-        # 2026-08-12: the multi-day book's capital management changed (flat Rs1L
-        # margin + take-all caps + composite ordering -> vol-targeted sizing on a
-        # Rs10L risk budget + cluster caps + unbiased-hash ordering, crash2d off).
-        # The engine's ledgers were reset at that boundary so DecayTripwire's
-        # rolling PF is computed on ONE regime — pooling them produced a
-        # misleading PF in the overnight book once already.
-        #
-        # The dashboard has the opposite requirement: history must not vanish.
-        # So the READER merges archive + live while the TRIPWIRE keeps reading
-        # only the live file. Each row is tagged with `regime` so the UI can
-        # segment; callers must not compute a single PF across a boundary.
-        if book == "paper":
+        if regime in ("archived", "all") and book == "paper":
             for arch in sorted((state / "archive").glob(f"decay_tripwire_{setup}.pre-*.json")):
                 try:
                     doc = json.loads(arch.read_text(encoding="utf-8"))
@@ -96,19 +107,39 @@ class SwingReader:
                 for t in (doc.get("trades") or []):
                     out.append({**t, "regime": tag, "archived": True})
 
-        path = state / f"decay_tripwire_{setup}{suffix}.json"
-        if path.exists():
-            try:
-                doc = json.loads(path.read_text(encoding="utf-8"))
-                tag = doc.get("_regime") or "current"
-                for t in (doc.get("trades") or []):
-                    out.append({**t, "regime": tag, "archived": False})
-            except Exception:
-                pass
+        if regime in ("current", "all"):
+            path = state / f"decay_tripwire_{setup}{suffix}.json"
+            if path.exists():
+                try:
+                    doc = json.loads(path.read_text(encoding="utf-8"))
+                    tag = doc.get("_regime") or "current"
+                    for t in (doc.get("trades") or []):
+                        out.append({**t, "regime": tag, "archived": False})
+                except Exception:
+                    pass
         return out
 
+    def list_regimes(self, setup: str = "all") -> List[Dict]:
+        """Archived regimes available, for labelling the Archive tab."""
+        setups = list(SWING_SETUPS) if setup == "all" else [setup]
+        seen: Dict[str, Dict] = {}
+        for s in setups:
+            for arch in sorted((self._root_for(s) / "state" / "archive")
+                               .glob(f"decay_tripwire_{s}.pre-*.json")):
+                try:
+                    doc = json.loads(arch.read_text(encoding="utf-8"))
+                except Exception:
+                    continue
+                tag = doc.get("_regime") or arch.stem.split(".", 1)[-1]
+                e = seen.setdefault(tag, {"regime": tag, "archived_on": doc.get("_archived_on"),
+                                          "setups": [], "trades": 0})
+                e["setups"].append(s)
+                e["trades"] += len(doc.get("trades") or [])
+        return sorted(seen.values(), key=lambda e: str(e.get("archived_on") or ""))
+
     def get_aggregate(self, setup: str = "all", date_from: Optional[str] = None,
-                      date_to: Optional[str] = None, book: str = "paper") -> Dict:
+                      date_to: Optional[str] = None, book: str = "paper",
+                      regime: str = "current") -> Dict:
         """Pool the swing PnL ledgers into the historic page's AggregateData shape.
 
         setup: family or single-setup selector —
@@ -141,7 +172,7 @@ class SwingReader:
         pooled = len(setups) > 1
         rows: List[Dict] = []  # {setup, pnl, date}
         for s in setups:
-            for t in self._ledger_trades(s, book=book):
+            for t in self._ledger_trades(s, book=book, regime=regime):
                 if pooled and t.get("attributed"):
                     continue
                 ts = str(t.get("ts_iso", ""))

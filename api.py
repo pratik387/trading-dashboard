@@ -1063,17 +1063,45 @@ async def swing_setups():
 
 @app.get("/api/swing/aggregate")
 async def swing_aggregate(setup: str = "all", date_from: str = None, date_to: str = None,
-                          book: str = "paper"):
+                          book: str = "paper", regime: str = "current"):
     """Pooled swing-book performance (AggregateData shape).
 
     `setup="all"` pools every swing setup; otherwise a single setup. Optional
     inclusive YYYY-MM-DD date bounds on the settle date. `book`: paper|live
     (live exists for the overnight setup only; multiday is paper-only).
+
+    `regime`: current (default) | archived | all
+      current  — the live ledger only. This is what the History page shows, so it
+                 stays FRESH after a regime boundary.
+      archived — previous regimes only. This is what the Archive tab shows.
+      all      — both. Only for research: a statistic pooled across a boundary is
+                 meaningless, because the book changed underneath it.
+
+    The 2026-08-12 boundary: the multi-day book moved from flat Rs1L margin +
+    take-all caps + composite ordering to vol-targeted sizing on a Rs10L risk
+    budget + cluster caps + unbiased-hash ordering, with crash2d disabled. Median
+    notional halved and 40 of 121 historical positions would have been capped
+    out. Pooling eras had already produced a misleading PF in the overnight book,
+    which is why `current` is the default.
     """
     try:
-        return swing_reader.get_aggregate(setup=setup, date_from=date_from, date_to=date_to, book=book)
+        return swing_reader.get_aggregate(setup=setup, date_from=date_from, date_to=date_to,
+                                          book=book, regime=regime)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/swing/regimes")
+async def swing_regimes(setup: str = "all"):
+    """Archived regimes available, for labelling the Archive tab.
+
+    Returns [{regime, archived_on, setups, trades}], oldest first. Empty list
+    means nothing has been archived yet and the Archive tab can stay hidden.
+    """
+    try:
+        return {"regimes": swing_reader.list_regimes(setup=setup)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

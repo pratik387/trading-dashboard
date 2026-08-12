@@ -11,6 +11,8 @@ import {
   MultidayPendingPosition,
   fetchMultidayBook,
   fetchSwingAggregate,
+  fetchSwingRegimes,
+  type SwingArchivedRegime,
 } from "@/lib/api";
 import { Layers, RefreshCw, Radio } from "lucide-react";
 
@@ -110,8 +112,18 @@ function ExitCard({ date, rows }: { date: string; rows: MultidayOpenPosition[] }
 
 export default function MultidayPage() {
   // Page-level tabs: Book = open positions by exit date; History = pooled
-  // per-setup aggregate (paper only — no live multiday book yet).
-  const [activeTab, setActiveTab] = useState<"book" | "history">("book");
+  // per-setup aggregate under the CURRENT trading rules; Archive = the same
+  // aggregate for superseded rules-eras.
+  //
+  // History and Archive are deliberately separate rather than merged. On
+  // 2026-08-12 the book moved from flat Rs1L margin + take-all caps + composite
+  // ordering to vol-targeted sizing on a Rs10L risk budget + cluster caps +
+  // unbiased-hash ordering, with crash2d disabled. Median notional halved and 40
+  // of 121 historical positions would have been capped out, so pooling the eras
+  // into one PF/return would be misleading — that exact mistake produced a wrong
+  // PF in the overnight book. History therefore stays FRESH from the boundary.
+  const [activeTab, setActiveTab] = useState<"book" | "history" | "archive">("book");
+  const [regimes, setRegimes] = useState<SwingArchivedRegime[]>([]);
   const [book, setBook] = useState<MultidayBook | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -120,9 +132,21 @@ export default function MultidayPage() {
   // History tab data source (formerly /historical's multiday family).
   const historyFetcher = useCallback(
     (dateFrom?: string, dateTo?: string) =>
-      fetchSwingAggregate("multiday", dateFrom, dateTo, "paper"),
+      fetchSwingAggregate("multiday", dateFrom, dateTo, "paper", "current"),
     []
   );
+
+  // Superseded rules-eras. Same shape, so HistoryView is reused as-is.
+  const archiveFetcher = useCallback(
+    (dateFrom?: string, dateTo?: string) =>
+      fetchSwingAggregate("multiday", dateFrom, dateTo, "paper", "archived"),
+    []
+  );
+
+  // Hide the Archive tab entirely when nothing has been archived.
+  useEffect(() => {
+    fetchSwingRegimes("multiday").then(setRegimes).catch(() => setRegimes([]));
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -177,6 +201,9 @@ export default function MultidayPage() {
         tabs={[
           { id: "book" as const, label: "Book" },
           { id: "history" as const, label: "History" },
+          ...(regimes.length
+            ? [{ id: "archive" as const, label: `Archive (${regimes.reduce((n, r) => n + r.trades, 0)})` }]
+            : []),
         ]}
         active={activeTab}
         onChange={setActiveTab}
@@ -184,6 +211,27 @@ export default function MultidayPage() {
 
       {activeTab === "history" && (
         <HistoryView family="multiday" fetcher={historyFetcher} />
+      )}
+
+      {activeTab === "archive" && (
+        <div className="space-y-3">
+          <div className="rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-900 p-3 text-sm text-amber-800 dark:text-amber-200">
+            <div className="font-medium mb-1">Superseded trading rules</div>
+            <div>
+              These trades were taken under rules that no longer apply
+              {regimes.map((r) => (
+                <span key={r.regime}>
+                  {" "}— <span className="font-medium">{r.regime}</span>
+                  {r.archived_on ? ` (archived ${r.archived_on})` : ""}, {r.trades} trades
+                </span>
+              ))}
+              . Sizing, caps and setup mix all changed at the boundary, so these numbers are
+              <span className="font-medium"> not comparable</span> with the History tab and must
+              not be pooled with it.
+            </div>
+          </div>
+          <HistoryView family="multiday" fetcher={archiveFetcher} />
+        </div>
       )}
 
       {activeTab === "book" && loading && !book && (

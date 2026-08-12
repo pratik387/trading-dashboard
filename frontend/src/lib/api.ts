@@ -218,20 +218,50 @@ export const SWING_SETUPS = [
   "crash2d_revert_long",
 ] as const;
 
+// Which trading-rules era to read. The eras are NOT pooled: on 2026-08-12 the
+// multi-day book moved from flat Rs1L margin + take-all caps + composite ordering
+// to vol-targeted sizing on a Rs10L risk budget + cluster caps + unbiased-hash
+// ordering, with crash2d disabled. Median notional halved and 40 of 121 historical
+// positions would have been capped out, so a number pooled across the boundary is
+// meaningless. History stays "current"; the Archive tab asks for "archived".
+export type SwingRegime = "current" | "archived" | "all";
+
 export async function fetchSwingAggregate(
   setup: string = "all",
   dateFrom?: string,
   dateTo?: string,
-  book: "live" | "paper" = "paper"
+  book: "live" | "paper" = "paper",
+  regime: SwingRegime = "current"
 ): Promise<AggregateData> {
   const params = new URLSearchParams();
   params.append("setup", setup);
   params.append("book", book);
+  params.append("regime", regime);
   if (dateFrom) params.append("date_from", dateFrom);
   if (dateTo) params.append("date_to", dateTo);
   const res = await fetch(`${API_BASE}/api/swing/aggregate?${params.toString()}`);
   if (!res.ok) throw new Error("Failed to fetch swing aggregate data");
   return res.json();
+}
+
+// Archived rules-eras, for labelling/hiding the Archive tab. An empty list means
+// nothing has been archived yet and the tab can stay hidden.
+export interface SwingArchivedRegime {
+  regime: string;
+  archived_on: string | null;
+  setups: string[];
+  trades: number;
+}
+
+export async function fetchSwingRegimes(
+  setup: string = "all"
+): Promise<SwingArchivedRegime[]> {
+  const params = new URLSearchParams();
+  params.append("setup", setup);
+  const res = await fetch(`${API_BASE}/api/swing/regimes?${params.toString()}`);
+  if (!res.ok) throw new Error("Failed to fetch swing regimes");
+  const data = await res.json();
+  return data.regimes ?? [];
 }
 
 // The live multi-day book: open (held, marked-to-market) + pending entries.
