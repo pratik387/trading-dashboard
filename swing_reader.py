@@ -70,13 +70,42 @@ class SwingReader:
         # trades live so far — multiday setups have no live ledger yet, so
         # book="live" yields [] for them (file absent) rather than erroring.
         suffix = "_live" if book == "live" else ""
-        path = self._root_for(setup) / "state" / f"decay_tripwire_{setup}{suffix}.json"
-        if not path.exists():
-            return []
-        try:
-            return json.loads(path.read_text(encoding="utf-8")).get("trades", []) or []
-        except Exception:
-            return []
+        state = self._root_for(setup) / "state"
+        out: List[Dict] = []
+
+        # ARCHIVED regimes first (oldest -> newest), then the live ledger.
+        #
+        # 2026-08-12: the multi-day book's capital management changed (flat Rs1L
+        # margin + take-all caps + composite ordering -> vol-targeted sizing on a
+        # Rs10L risk budget + cluster caps + unbiased-hash ordering, crash2d off).
+        # The engine's ledgers were reset at that boundary so DecayTripwire's
+        # rolling PF is computed on ONE regime — pooling them produced a
+        # misleading PF in the overnight book once already.
+        #
+        # The dashboard has the opposite requirement: history must not vanish.
+        # So the READER merges archive + live while the TRIPWIRE keeps reading
+        # only the live file. Each row is tagged with `regime` so the UI can
+        # segment; callers must not compute a single PF across a boundary.
+        if book == "paper":
+            for arch in sorted((state / "archive").glob(f"decay_tripwire_{setup}.pre-*.json")):
+                try:
+                    doc = json.loads(arch.read_text(encoding="utf-8"))
+                except Exception:
+                    continue
+                tag = doc.get("_regime") or arch.stem.split(".", 1)[-1]
+                for t in (doc.get("trades") or []):
+                    out.append({**t, "regime": tag, "archived": True})
+
+        path = state / f"decay_tripwire_{setup}{suffix}.json"
+        if path.exists():
+            try:
+                doc = json.loads(path.read_text(encoding="utf-8"))
+                tag = doc.get("_regime") or "current"
+                for t in (doc.get("trades") or []):
+                    out.append({**t, "regime": tag, "archived": False})
+            except Exception:
+                pass
+        return out
 
     def get_aggregate(self, setup: str = "all", date_from: Optional[str] = None,
                       date_to: Optional[str] = None, book: str = "paper") -> Dict:
