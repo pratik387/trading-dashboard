@@ -119,9 +119,25 @@ class SwingReader:
                     pass
         return out
 
+    def _resolve_setups(self, setup: str) -> List[str]:
+        """Expand a family selector to concrete setup names.
+
+        Shared by get_aggregate and list_regimes so both accept the SAME
+        vocabulary. They diverged once: list_regimes treated "multiday" as a
+        literal setup name, found no archives, and the Archive tab stayed hidden
+        even though 180 archived trades existed.
+        """
+        if setup == "all":
+            return list(SWING_SETUPS)
+        if setup == "overnight":
+            return [s for s in SWING_SETUPS if s in OVERNIGHT_SETUPS]
+        if setup == "multiday":
+            return [s for s in SWING_SETUPS if s not in OVERNIGHT_SETUPS]
+        return [setup]
+
     def list_regimes(self, setup: str = "all") -> List[Dict]:
         """Archived regimes available, for labelling the Archive tab."""
-        setups = list(SWING_SETUPS) if setup == "all" else [setup]
+        setups = self._resolve_setups(setup)
         seen: Dict[str, Dict] = {}
         for s in setups:
             for arch in sorted((self._root_for(s) / "state" / "archive")

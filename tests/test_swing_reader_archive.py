@@ -136,3 +136,24 @@ def test_live_book_ignores_the_paper_archive(tmp_path):
     _live(tmp_path, SETUP, [])
     rows = SwingReader(tmp_path)._ledger_trades(SETUP, book="live", regime="all")
     assert rows == []
+
+
+def test_list_regimes_accepts_family_selectors(tmp_path):
+    """Regression: 'multiday' was treated as a literal setup name, so
+    list_regimes found nothing and the Archive tab stayed hidden despite
+    archived trades existing."""
+    _archive(tmp_path, "zscore_oversold_revert_long",
+             [{"net_pnl_inr": 1.0, "ts_iso": "2026-07-10T09:30:00"}])
+    _archive(tmp_path, "crash2d_revert_long",
+             [{"net_pnl_inr": 2.0, "ts_iso": "2026-07-11T09:30:00"}])
+    r = SwingReader(tmp_path)
+    for sel in ("all", "multiday"):
+        regs = r.list_regimes(setup=sel)
+        assert regs, f"{sel!r} found no archived regimes"
+        assert regs[0]["trades"] == 2, f"{sel!r} miscounted archived trades"
+
+
+def test_list_regimes_overnight_excludes_multiday_archives(tmp_path):
+    _archive(tmp_path, "zscore_oversold_revert_long",
+             [{"net_pnl_inr": 1.0, "ts_iso": "2026-07-10T09:30:00"}])
+    assert SwingReader(tmp_path).list_regimes(setup="overnight") == []
