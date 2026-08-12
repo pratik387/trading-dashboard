@@ -210,7 +210,25 @@ export default function MultidayPage() {
       />
 
       {activeTab === "history" && (
-        <HistoryView family="multiday" fetcher={historyFetcher} />
+        <div className="space-y-3">
+          {regimes.length > 0 && (
+            // Without this the page reads as broken: History is empty for about
+            // a week after a rules change, because positions ENTERED under the
+            // old rules are routed to Archive when they settle (their sizing was
+            // fixed at entry), so the first row here only appears once a
+            // position both opens AND closes under the current rules.
+            <div className="rounded-lg border border-slate-200 bg-slate-50 dark:bg-slate-800/40 dark:border-slate-700 p-3 text-sm text-slate-700 dark:text-slate-300">
+              <div className="font-medium mb-1">Fresh from the current rules</div>
+              <div>
+                Counting only positions <span className="font-medium">entered</span> under the
+                rules in force now. Positions opened before the change settle into the{" "}
+                <span className="font-medium">Archive</span> tab even when they close today, so
+                this stays empty until the first fully post-change position closes.
+              </div>
+            </div>
+          )}
+          <HistoryView family="multiday" fetcher={historyFetcher} />
+        </div>
       )}
 
       {activeTab === "archive" && (
