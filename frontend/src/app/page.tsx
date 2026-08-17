@@ -8,6 +8,8 @@ import { HistoryView } from "@/components/HistoryView";
 import { cn, formatINR, formatPct, formatTime } from "@/lib/utils";
 import {
   fetchAggregate,
+  fetchIntradayRegimes,
+  type IntradaySizeRegime,
   Instance,
   InstanceStatus,
   InstancePosition,
@@ -62,7 +64,13 @@ export default function HomePage() {
   const { adminToken, setAdminToken, isAdmin, clearToken } = useAdmin();
   // Page-level tabs: Live = realtime instance view, History = aggregate view
   // (moved here from the old /historical page's intraday family).
-  const [activeTab, setActiveTab] = useState<"live" | "history">("live");
+  // History = CURRENT book-size era; Archive = the era before the size change.
+  // Rupee P&L does not survive a size change: one 2026-08-14 session at ~5-10x
+  // moved the cumulative by Rs8,535 more than the same trades at 1x, making a
+  // +Rs12,515 record read as +Rs1,436. Splitting keeps each era's total honest,
+  // the same way the multi-day book is split at its capital-management boundary.
+  const [activeTab, setActiveTab] = useState<"live" | "history" | "archive">("live");
+  const [sizeRegimes, setSizeRegimes] = useState<IntradaySizeRegime[]>([]);
   const [historyConfigType, setHistoryConfigType] = useState<"fixed" | "live">("fixed");
   const [instances, setInstances] = useState<Instance[]>([]);
   const [selectedInstance, setSelectedInstance] = useState<string | null>(null);
@@ -354,9 +362,20 @@ export default function HomePage() {
   // formerly the /historical page's intraday family.
   const historyFetcher = useCallback(
     (dateFrom?: string, dateTo?: string, _book?: unknown, includeRetired?: boolean) =>
-      fetchAggregate(historyConfigType, dateFrom, dateTo, includeRetired ?? true),
+      fetchAggregate(historyConfigType, dateFrom, dateTo, includeRetired ?? true, "current"),
     [historyConfigType]
   );
+
+  // Superseded book size. Same shape, so HistoryView is reused as-is.
+  const archiveFetcher = useCallback(
+    (dateFrom?: string, dateTo?: string, _book?: unknown, includeRetired?: boolean) =>
+      fetchAggregate(historyConfigType, dateFrom, dateTo, includeRetired ?? true, "archived"),
+    [historyConfigType]
+  );
+
+  useEffect(() => {
+    fetchIntradayRegimes(historyConfigType).then(setSizeRegimes).catch(() => setSizeRegimes([]));
+  }, [historyConfigType]);
 
   // Never show offline/stale instances; always show the currently selected one.
   const visibleInstances = instances.filter(
@@ -426,10 +445,32 @@ export default function HomePage() {
         tabs={[
           { id: "live" as const, label: "Live" },
           { id: "history" as const, label: "History" },
+          ...(sizeRegimes.length
+            ? [{ id: "archive" as const, label: "Archive" }]
+            : []),
         ]}
         active={activeTab}
         onChange={setActiveTab}
       />
+
+      {activeTab === "archive" && (
+        <div className="space-y-3">
+          <div className="rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-900 p-3 text-sm text-amber-800 dark:text-amber-200">
+            <div className="font-medium mb-1">Previous book size</div>
+            <div>
+              {sizeRegimes.map((r) => (
+                <span key={r.regime}>
+                  {r.label} — {r.sessions} sessions.{" "}
+                </span>
+              ))}
+              Rupee totals here are <span className="font-medium">not comparable</span> with
+              History: the same trades at a different book size differ several-fold. Percentage
+              returns are comparable; rupees are not, so the two must not be added together.
+            </div>
+          </div>
+          <HistoryView family="intraday" fetcher={archiveFetcher} showRetiredToggle />
+        </div>
+      )}
 
       {activeTab === "history" && (
         <HistoryView

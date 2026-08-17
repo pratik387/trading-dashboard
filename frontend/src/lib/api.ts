@@ -190,17 +190,38 @@ export interface AggregateData {
   date_to?: string;
 }
 
+// Book-size eras. Rupee P&L is not comparable across a size change, so the
+// intraday History tab shows the CURRENT era and Archive holds the previous
+// one — same segmentation the multi-day book gets at its sizing boundary.
+export type IntradaySizeRegime = {
+  regime: string;
+  changed_on: string;
+  sessions: number;
+  label: string;
+};
+
+export async function fetchIntradayRegimes(
+  configType: string
+): Promise<IntradaySizeRegime[]> {
+  const res = await fetch(`${API_BASE}/api/runs/${configType}/regimes`);
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.regimes ?? [];
+}
+
 export async function fetchAggregate(
   configType: string,
   dateFrom?: string,
   dateTo?: string,
-  includeRetired: boolean = true
+  includeRetired: boolean = true,
+  regime: "current" | "archived" | "all" = "current"
 ): Promise<AggregateData> {
   let url = `${API_BASE}/api/runs/${configType}/aggregate`;
   const params = new URLSearchParams();
   if (dateFrom) params.append("date_from", dateFrom);
   if (dateTo) params.append("date_to", dateTo);
   if (!includeRetired) params.append("include_retired", "false");
+  params.append("regime", regime);
   if (params.toString()) url += `?${params.toString()}`;
 
   const res = await fetch(url);

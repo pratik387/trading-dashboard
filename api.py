@@ -243,6 +243,45 @@ def get_setup_active_flags() -> Dict[str, bool]:
         return {}
 
 
+def get_intraday_size_boundary() -> str | None:
+    """Date the intraday book changed size, from the engine config.
+
+    Rupee P&L is not comparable across it: the same trades at 1x vs the current
+    multiplier differ several-fold, so pooling makes a good record read badly
+    (a +Rs12,515 book showed as +Rs1,436 after one 10x session). History shows
+    the CURRENT era, Archive the previous one — the same segmentation the
+    multi-day book gets at its capital-management boundary.
+
+    None when unset/unreadable, in which case no split is applied.
+    """
+    try:
+        cfg = LocalDataReader('fixed').get_config()
+        return (cfg.get('intraday_sizing') or {}).get('book_size_changed_on') or None
+    except Exception:
+        return None
+
+
+def _split_runs_by_size_era(runs: list, regime: str) -> list:
+    """current = on/after the size change; archived = before it; all = both."""
+    if regime not in ("current", "archived", "all"):
+        raise ValueError(f"regime must be current|archived|all, got {regime!r}")
+    boundary = get_intraday_size_boundary()
+    if regime == "all" or not boundary:
+        return runs
+    out = []
+    for r in runs:
+        ts = r.get('timestamp')
+        d = ts[:10] if ts and ts != 'Unknown' else None
+        if d is None:
+            # Undated runs stay in the CURRENT view rather than vanishing.
+            if regime == "current":
+                out.append(r)
+            continue
+        if (d >= boundary) == (regime == "current"):
+            out.append(r)
+    return out
+
+
 # ============ Response Models ============
 
 class RunInfo(BaseModel):
@@ -301,9 +340,34 @@ async def list_runs(config_type: str, limit: int = 50):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/runs/{config_type}/regimes")
+async def get_intraday_regimes(config_type: str):
+    """Previous book-size eras, so the UI can offer an Archive tab.
+
+    Empty list when the book has never changed size — the tab stays hidden.
+    """
+    boundary = get_intraday_size_boundary()
+    if not boundary:
+        return {"regimes": []}
+    try:
+        reader = get_reader(config_type)
+        runs = reader.list_runs(config_type=get_effective_config_type(config_type), limit=500)
+        old = _split_runs_by_size_era(runs, "archived")
+        if not old:
+            return {"regimes": []}
+        return {"regimes": [{
+            "regime": "pre_size_change",
+            "changed_on": boundary,
+            "sessions": len(old),
+            "label": f"1x book size (before {boundary})",
+        }]}
+    except Exception:
+        return {"regimes": []}
+
+
 @app.get("/api/runs/{config_type}/aggregate")
 async def get_aggregate_summary(config_type: str, date_from: str = None, date_to: str = None,
-                                include_retired: bool = True):
+                                include_retired: bool = True, regime: str = "current"):
     """
     Get aggregated summary across all runs for a config type.
     Optionally filter by date range (YYYY-MM-DD format).
@@ -317,6 +381,12 @@ async def get_aggregate_summary(config_type: str, date_from: str = None, date_to
         reader = get_reader(config_type)
         effective_type = get_effective_config_type(config_type)
         runs = reader.list_runs(config_type=effective_type, limit=500)
+        # Segment by book size era before anything is summed — rupee totals
+        # across a size change are not comparable (see get_intraday_size_boundary).
+        try:
+            runs = _split_runs_by_size_era(runs, regime)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
 
         # Filter by date range if provided
         if date_from or date_to:
