@@ -22,7 +22,7 @@ case "$1" in
     frontend)
         echo "Starting Frontend on port 8501..."
         echo "Dashboard: http://${VM_IP}:8501"
-        cd frontend && npm run dev
+        cd frontend && if [ "${DEV:-0}" = "1" ]; then npm run dev; else npm run build && npm run start; fi
         ;;
     both)
         echo "Starting API on port 8000..."
@@ -33,7 +33,7 @@ case "$1" in
         echo "Starting Frontend on port 8501..."
         echo "Dashboard: http://${VM_IP}:8501"
         echo "API Swagger: http://${VM_IP}:8000/docs"
-        cd frontend && npm run dev
+        cd frontend && if [ "${DEV:-0}" = "1" ]; then npm run dev; else npm run build && npm run start; fi
         ;;
     *)
         echo "Usage: ./start.sh [api|frontend|both]"
