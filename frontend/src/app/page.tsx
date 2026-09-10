@@ -468,7 +468,7 @@ export default function HomePage() {
               returns are comparable; rupees are not, so the two must not be added together.
             </div>
           </div>
-          <HistoryView family="intraday" fetcher={archiveFetcher} showRetiredToggle />
+          <HistoryView family="intraday" fetcher={archiveFetcher} archiveRetired />
         </div>
       )}
 
@@ -476,7 +476,7 @@ export default function HomePage() {
         <HistoryView
           family="intraday"
           fetcher={historyFetcher}
-          showRetiredToggle
+          archiveRetired
           headerExtra={
             <select
               value={historyConfigType}

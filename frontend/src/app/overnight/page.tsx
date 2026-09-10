@@ -147,7 +147,15 @@ export default function OvernightPage() {
       />
 
       {activeTab === "history" && (
-        <HistoryView family="overnight" fetcher={historyFetcher} showBookToggle />
+        // Pass the page's live/paper selection down so Book -> History keeps
+        // it. HistoryView used to own this and reset to "live" on every mount.
+        <HistoryView
+          family="overnight"
+          fetcher={historyFetcher}
+          showBookToggle
+          book={book}
+          onBookChange={setBook}
+        />
       )}
 
       {activeTab === "book" && (

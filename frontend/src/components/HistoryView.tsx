@@ -63,20 +63,31 @@ type SubTab = "overview" | "setups" | "daily" | "trades";
  *
  * showBookToggle: overnight only — switch between the real-money live
  * ledger and the Rs1L idealized paper mirror.
+ *
+ * book / onBookChange: when the page owns the live/paper selection (overnight
+ * shows it on the Book tab too), pass it in so the History tab doesn't reset
+ * to "live" on every mount. Uncontrolled when omitted.
+ *
+ * archiveRetired: intraday only. The primary aggregate is computed on the
+ * setups still running, so totals reconcile to the active book; setups that
+ * were switched off in the engine config are moved to a collapsed archive on
+ * the Setups tab instead of being a filter over everything.
  */
 export function HistoryView({
   family,
   fetcher,
   showBookToggle = false,
-  showRetiredToggle = false,
+  book: controlledBook,
+  onBookChange,
+  archiveRetired = false,
   headerExtra,
 }: {
   family: HistoryFamily;
   fetcher: HistoryFetcher;
   showBookToggle?: boolean;
-  // families whose config can retire setups (intraday) get an
-  // include/exclude-retired filter over the whole aggregate
-  showRetiredToggle?: boolean;
+  book?: HistoryBook;
+  onBookChange?: (book: HistoryBook) => void;
+  archiveRetired?: boolean;
   headerExtra?: ReactNode;
 }) {
   const [data, setData] = useState<AggregateData | null>(null);
@@ -87,10 +98,15 @@ export function HistoryView({
   );
   const [dateFrom, setDateFrom] = useState<string>("");
   const [dateTo, setDateTo] = useState<string>("");
-  // Overnight only: real-money live ledger vs Rs1L idealized paper.
-  const [book, setBook] = useState<HistoryBook>(showBookToggle ? "live" : "paper");
-  // Default ON: full history reconciles with the ledger. Off = active book only.
-  const [includeRetired, setIncludeRetired] = useState(true);
+  // Overnight only: real-money live ledger vs Rs1L idealized paper. Controlled
+  // by the page when it owns the selection (so Book -> History keeps it);
+  // otherwise local. Previously this was always local and initialised to
+  // "live", which silently discarded a "paper" choice made on the Book tab.
+  const [internalBook, setInternalBook] = useState<HistoryBook>(
+    showBookToggle ? "live" : "paper"
+  );
+  const book = controlledBook ?? internalBook;
+  const setBook = onBookChange ?? setInternalBook;
 
   const loadData = useCallback(
     async (resetFilters = false) => {
@@ -98,7 +114,10 @@ export function HistoryView({
         setLoading(true);
         const from = resetFilters ? undefined : dateFrom || undefined;
         const to = resetFilters ? undefined : dateTo || undefined;
-        const result = await fetcher(from, to, book, includeRetired);
+        // archiveRetired: the headline aggregate is the ACTIVE book only, so
+        // totals reconcile to what is actually running. Retired setups load
+        // lazily into the Setups tab's archive section.
+        const result = await fetcher(from, to, book, !archiveRetired);
         setData(result);
         setError(null);
 
@@ -114,7 +133,7 @@ export function HistoryView({
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [fetcher, book, dateFrom, dateTo, includeRetired]
+    [fetcher, book, dateFrom, dateTo, archiveRetired]
   );
 
   useEffect(() => {
@@ -122,13 +141,6 @@ export function HistoryView({
     // Reload from scratch when the data source changes (fetcher identity / book).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fetcher, book]);
-
-  useEffect(() => {
-    if (!showRetiredToggle) return;
-    // Keep the current date filter when flipping the retired filter.
-    loadData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [includeRetired]);
 
   const tabs = [
     { id: "overview" as SubTab, label: "Overview", icon: TrendingUp },
@@ -184,17 +196,6 @@ export function HistoryView({
             </div>
           )}
           {headerExtra}
-          {showRetiredToggle && (
-            <label className="flex items-center gap-1.5 text-sm text-gray-600 dark:text-gray-300 border rounded-lg px-3 py-2 bg-white dark:bg-gray-800 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={includeRetired}
-                onChange={(e) => setIncludeRetired(e.target.checked)}
-                className="accent-blue-600"
-              />
-              Include retired
-            </label>
-          )}
           <input
             type="date"
             value={dateFrom}
@@ -259,7 +260,16 @@ export function HistoryView({
       ) : data ? (
         <>
           {activeTab === "overview" && <OverviewTab data={data} />}
-          {activeTab === "setups" && <SetupsTab data={data} />}
+          {activeTab === "setups" && (
+            <SetupsTab
+              data={data}
+              archiveRetired={archiveRetired}
+              fetcher={fetcher}
+              dateFrom={dateFrom || undefined}
+              dateTo={dateTo || undefined}
+              book={book}
+            />
+          )}
           {activeTab === "daily" && <DailyTab data={data} />}
           {activeTab === "trades" && <TradesTab data={data} family={family} />}
         </>
@@ -348,10 +358,26 @@ function OverviewTab({ data }: { data: AggregateData }) {
 }
 
 // ============ Setups Tab ============
-function SetupsTab({ data }: { data: AggregateData }) {
-  // Retired setups (switched off in the engine config) keep their trades in
-  // every aggregate — history must reconcile with the ledger — but sort below
-  // active ones and carry a badge so they aren't read as live edge.
+function SetupsTab({
+  data,
+  archiveRetired = false,
+  fetcher,
+  dateFrom,
+  dateTo,
+  book,
+}: {
+  data: AggregateData;
+  archiveRetired?: boolean;
+  fetcher: HistoryFetcher;
+  dateFrom?: string;
+  dateTo?: string;
+  book: HistoryBook;
+}) {
+  // With archiveRetired the incoming aggregate is already active-only, so the
+  // retired rows never reach this list; they live in the archive below. For
+  // the other families the old behaviour stands: retired setups keep their
+  // trades (history must reconcile with the ledger) but sort last and carry a
+  // badge so they aren't read as live edge.
   const setups = [...(data.by_setup || [])].sort(
     (a, b) => Number(b.active ?? true) - Number(a.active ?? true)
   );
@@ -443,7 +469,138 @@ function SetupsTab({ data }: { data: AggregateData }) {
           </table>
         </div>
       </section>
+
+      {archiveRetired && (
+        <ArchivedSetups fetcher={fetcher} dateFrom={dateFrom} dateTo={dateTo} book={book} />
+      )}
     </div>
+  );
+}
+
+/**
+ * Setups switched off in the engine config, kept out of the headline numbers.
+ *
+ * Collapsed by default and fetched only on expand: it re-requests the same
+ * date range with include_retired=true and keeps the rows the engine marks
+ * inactive. Their trades are real and still reconcile with the ledger, so they
+ * stay reachable — they just no longer sit alongside the running book as if
+ * they were live edge, and they no longer need a filter to hide.
+ */
+function ArchivedSetups({
+  fetcher,
+  dateFrom,
+  dateTo,
+  book,
+}: {
+  fetcher: HistoryFetcher;
+  dateFrom?: string;
+  dateTo?: string;
+  book: HistoryBook;
+}) {
+  const [open, setOpen] = useState(false);
+  const [rows, setRows] = useState<AggregateData["by_setup"] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setLoading(true);
+    fetcher(dateFrom, dateTo, book, true)
+      .then((full) => {
+        if (cancelled) return;
+        setRows((full.by_setup || []).filter((s) => s.active === false));
+        setError(null);
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // Refetch when the range/book changes while expanded.
+  }, [open, fetcher, dateFrom, dateTo, book]);
+
+  const retiredPnl = (rows || []).reduce((a, s) => a + s.pnl, 0);
+  const retiredTrades = (rows || []).reduce((a, s) => a + s.trades, 0);
+
+  return (
+    <section className="rounded-lg border border-dashed border-gray-300 dark:border-gray-700">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center justify-between px-4 py-3 text-sm text-left"
+        aria-expanded={open}
+      >
+        <span className="font-medium text-gray-600 dark:text-gray-300">
+          Retired setups
+          <span className="ml-2 text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-gray-200 text-gray-500 dark:bg-gray-700 dark:text-gray-400">
+            archived
+          </span>
+        </span>
+        <span className="text-xs text-gray-500">
+          {rows
+            ? `${rows.length} setup${rows.length === 1 ? "" : "s"} · ${retiredTrades} trades · ${formatINR(retiredPnl)}`
+            : open
+              ? "loading…"
+              : "excluded from the totals above — click to view"}
+          <span className="ml-2">{open ? "▾" : "▸"}</span>
+        </span>
+      </button>
+
+      {open && (
+        <div className="border-t border-dashed border-gray-300 dark:border-gray-700">
+          {loading && (
+            <div className="px-4 py-6 text-sm text-gray-500 text-center">Loading archived setups…</div>
+          )}
+          {error && (
+            <div className="px-4 py-4 text-sm text-red-600 dark:text-red-400">{error}</div>
+          )}
+          {!loading && !error && rows && rows.length === 0 && (
+            <div className="px-4 py-6 text-sm text-gray-500 text-center">
+              No retired setups in this range.
+            </div>
+          )}
+          {!loading && !error && rows && rows.length > 0 && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm min-w-[600px] opacity-75">
+                <thead className="bg-gray-50 dark:bg-gray-900">
+                  <tr>
+                    <th className="px-4 py-2 text-left font-medium">Setup</th>
+                    <th className="px-4 py-2 text-right font-medium">Trades</th>
+                    <th className="px-4 py-2 text-right font-medium">PnL</th>
+                    <th className="px-4 py-2 text-right font-medium">Wins</th>
+                    <th className="px-4 py-2 text-right font-medium">Win Rate</th>
+                    <th className="px-4 py-2 text-right font-medium">Avg PnL</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                  {[...rows]
+                    .sort((a, b) => b.pnl - a.pnl)
+                    .map((s) => (
+                      <tr key={s.setup}>
+                        <td className="px-4 py-2 font-medium">{s.setup}</td>
+                        <td className="px-4 py-2 text-right">{s.trades}</td>
+                        <td className={`px-4 py-2 text-right font-medium ${s.pnl >= 0 ? "text-green-600" : "text-red-600"}`}>
+                          {formatINR(s.pnl)}
+                        </td>
+                        <td className="px-4 py-2 text-right">{s.wins}</td>
+                        <td className="px-4 py-2 text-right">{s.win_rate.toFixed(1)}%</td>
+                        <td className={`px-4 py-2 text-right ${s.avg_pnl >= 0 ? "text-green-600" : "text-red-600"}`}>
+                          {formatINR(s.avg_pnl)}
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+    </section>
   );
 }
 
