@@ -299,7 +299,7 @@ class UpdateRunCapitalRequest(BaseModel):
 # ============ REST Endpoints ============
 
 @app.get("/")
-async def root():
+def root():
     """API health check"""
     return {
         "status": "ok",
@@ -310,7 +310,7 @@ async def root():
 
 
 @app.get("/api/config-types")
-async def list_config_types():
+def list_config_types():
     """List all config types currently surfaced in the UI (fixed + live).
 
     Note: list_config_types() on the OCI reader may still find legacy
@@ -329,7 +329,7 @@ async def list_config_types():
 
 
 @app.get("/api/runs/{config_type}")
-async def list_runs(config_type: str, limit: int = 50):
+def list_runs(config_type: str, limit: int = 50):
     """List all runs for a config type"""
     try:
         reader = get_reader(config_type)
@@ -341,7 +341,7 @@ async def list_runs(config_type: str, limit: int = 50):
 
 
 @app.get("/api/runs/{config_type}/regimes")
-async def get_intraday_regimes(config_type: str):
+def get_intraday_regimes(config_type: str):
     """Previous book-size eras, so the UI can offer an Archive tab.
 
     Empty list when the book has never changed size — the tab stays hidden.
@@ -366,7 +366,7 @@ async def get_intraday_regimes(config_type: str):
 
 
 @app.get("/api/runs/{config_type}/aggregate")
-async def get_aggregate_summary(config_type: str, date_from: str = None, date_to: str = None,
+def get_aggregate_summary(config_type: str, date_from: str = None, date_to: str = None,
                                 include_retired: bool = True, regime: str = "current"):
     """
     Get aggregated summary across all runs for a config type.
@@ -570,7 +570,7 @@ async def get_aggregate_summary(config_type: str, date_from: str = None, date_to
 
 
 @app.get("/api/runs/{config_type}/{run_id}")
-async def get_run(config_type: str, run_id: str):
+def get_run(config_type: str, run_id: str):
     """Get run metadata and performance"""
     try:
         reader = get_reader(config_type)
@@ -614,7 +614,7 @@ async def update_run_capital(config_type: str, run_id: str, request: UpdateRunCa
 
 
 @app.get("/api/runs/{config_type}/{run_id}/files")
-async def list_run_files(config_type: str, run_id: str):
+def list_run_files(config_type: str, run_id: str):
     """List all files in a run folder"""
     try:
         reader = get_reader(config_type)
@@ -626,7 +626,7 @@ async def list_run_files(config_type: str, run_id: str):
 
 
 @app.get("/api/runs/{config_type}/{run_id}/summary")
-async def get_run_summary(config_type: str, run_id: str):
+def get_run_summary(config_type: str, run_id: str):
     """Get aggregate summary for a run"""
     try:
         reader = get_reader(config_type)
@@ -638,7 +638,7 @@ async def get_run_summary(config_type: str, run_id: str):
 
 
 @app.get("/api/runs/{config_type}/{run_id}/analytics")
-async def get_analytics(config_type: str, run_id: str):
+def get_analytics(config_type: str, run_id: str):
     """Get analytics data for a run"""
     try:
         reader = get_reader(config_type)
@@ -650,7 +650,7 @@ async def get_analytics(config_type: str, run_id: str):
 
 
 @app.get("/api/runs/{config_type}/{run_id}/events")
-async def get_events(config_type: str, run_id: str):
+def get_events(config_type: str, run_id: str):
     """Get all events (DECISION, TRIGGER, EXIT) for a run"""
     try:
         reader = get_reader(config_type)
@@ -662,7 +662,7 @@ async def get_events(config_type: str, run_id: str):
 
 
 @app.get("/api/runs/{config_type}/{run_id}/decisions")
-async def get_decisions(config_type: str, run_id: str):
+def get_decisions(config_type: str, run_id: str):
     """Get decision events for a run"""
     try:
         reader = get_reader(config_type)
@@ -674,7 +674,7 @@ async def get_decisions(config_type: str, run_id: str):
 
 
 @app.get("/api/runs/{config_type}/{run_id}/planning")
-async def get_planning(config_type: str, run_id: str):
+def get_planning(config_type: str, run_id: str):
     """Get planning data for a run"""
     try:
         reader = get_reader(config_type)
@@ -686,7 +686,7 @@ async def get_planning(config_type: str, run_id: str):
 
 
 @app.get("/api/runs/{config_type}/{run_id}/ranking")
-async def get_ranking(config_type: str, run_id: str):
+def get_ranking(config_type: str, run_id: str):
     """Get ranking data for a run"""
     try:
         reader = get_reader(config_type)
@@ -698,7 +698,7 @@ async def get_ranking(config_type: str, run_id: str):
 
 
 @app.get("/api/runs/{config_type}/{run_id}/scanning")
-async def get_scanning(config_type: str, run_id: str):
+def get_scanning(config_type: str, run_id: str):
     """Get scanning data for a run"""
     try:
         reader = get_reader(config_type)
@@ -710,7 +710,7 @@ async def get_scanning(config_type: str, run_id: str):
 
 
 @app.get("/api/runs/{config_type}/{run_id}/screening")
-async def get_screening(config_type: str, run_id: str):
+def get_screening(config_type: str, run_id: str):
     """Get screening data for a run"""
     try:
         reader = get_reader(config_type)
@@ -722,7 +722,7 @@ async def get_screening(config_type: str, run_id: str):
 
 
 @app.get("/api/runs/{config_type}/{run_id}/trades")
-async def get_trades(config_type: str, run_id: str):
+def get_trades(config_type: str, run_id: str):
     """Get all trades (final exits) for a run"""
     try:
         reader = get_reader(config_type)
@@ -735,7 +735,7 @@ async def get_trades(config_type: str, run_id: str):
 
 
 @app.get("/api/runs/{config_type}/{run_id}/trades/{trade_id}")
-async def get_trade_details(config_type: str, run_id: str, trade_id: str):
+def get_trade_details(config_type: str, run_id: str, trade_id: str):
     """Get complete details for a specific trade"""
     try:
         reader = get_reader(config_type)
@@ -751,7 +751,7 @@ async def get_trade_details(config_type: str, run_id: str, trade_id: str):
 
 
 @app.get("/api/runs/{config_type}/{run_id}/logs/agent")
-async def get_agent_log(config_type: str, run_id: str, lines: int = 100):
+def get_agent_log(config_type: str, run_id: str, lines: int = 100):
     """Get agent log content (last N lines)"""
     try:
         reader = get_reader(config_type)
@@ -778,7 +778,7 @@ async def get_agent_log(config_type: str, run_id: str, lines: int = 100):
 
 
 @app.get("/api/runs/{config_type}/{run_id}/logs/trade")
-async def get_trade_log(config_type: str, run_id: str, lines: int = 100):
+def get_trade_log(config_type: str, run_id: str, lines: int = 100):
     """Get trade logs content (last N lines)"""
     try:
         reader = get_reader(config_type)
@@ -805,7 +805,7 @@ async def get_trade_log(config_type: str, run_id: str, lines: int = 100):
 
 
 @app.get("/api/runs/{config_type}/{run_id}/analysis/setups")
-async def get_setup_analysis(config_type: str, run_id: str):
+def get_setup_analysis(config_type: str, run_id: str):
     """Get setup performance analysis"""
     try:
         reader = get_reader(config_type)
@@ -833,7 +833,7 @@ async def get_setup_analysis(config_type: str, run_id: str):
 
 
 @app.get("/api/runs/{config_type}/{run_id}/analysis/regimes")
-async def get_regime_analysis(config_type: str, run_id: str):
+def get_regime_analysis(config_type: str, run_id: str):
     """Get regime performance analysis"""
     try:
         reader = get_reader(config_type)
@@ -870,7 +870,7 @@ def get_local_reader(config_type: str) -> LocalDataReader:
 
 
 @app.get("/api/live/summary")
-async def get_live_summary(config_type: str = "fixed"):
+def get_live_summary(config_type: str = "fixed"):
     """Get live trading summary (for VM during market hours)"""
     try:
         reader = get_local_reader(config_type)
@@ -881,7 +881,7 @@ async def get_live_summary(config_type: str = "fixed"):
 
 
 @app.get("/api/live/positions")
-async def get_live_positions(config_type: str = "fixed"):
+def get_live_positions(config_type: str = "fixed"):
     """Get open positions for live trading"""
     try:
         reader = get_local_reader(config_type)
@@ -902,7 +902,7 @@ async def get_live_positions(config_type: str = "fixed"):
 
 
 @app.get("/api/live/closed")
-async def get_live_closed(config_type: str = "fixed"):
+def get_live_closed(config_type: str = "fixed"):
     """Get closed positions for live trading"""
     try:
         reader = get_local_reader(config_type)
@@ -917,7 +917,7 @@ async def get_live_closed(config_type: str = "fixed"):
 
 
 @app.get("/api/live/events")
-async def get_live_events(config_type: str = "fixed", limit: int = 100):
+def get_live_events(config_type: str = "fixed", limit: int = 100):
     """Get recent events for live trading"""
     try:
         reader = get_local_reader(config_type)
@@ -934,7 +934,7 @@ async def get_live_events(config_type: str = "fixed", limit: int = 100):
 
 
 @app.get("/api/live/config-types")
-async def get_live_config_types():
+def get_live_config_types():
     """Get available config types for live trading"""
     return {"config_types": ["fixed"]}
 
@@ -945,7 +945,7 @@ async def get_live_config_types():
 # OVERNIGHT_INTEGRATION_PLAN.md and overnight_reader.py.
 
 @app.get("/api/overnight/pool")
-async def overnight_pool():
+def overnight_pool():
     """Current slot pool: active positions + capacity stats + stale slots."""
     try:
         return overnight_reader.get_slot_pool()
@@ -954,7 +954,7 @@ async def overnight_pool():
 
 
 @app.get("/api/overnight/ledger")
-async def overnight_ledger(limit: Optional[int] = None, book: str = "paper"):
+def overnight_ledger(limit: Optional[int] = None, book: str = "paper"):
     """Settled-trade PnL ledger (from decay tripwire). `limit` = recent N.
 
     `book` = 'paper' (Rs1L idealized) or 'live' (real fills).
@@ -968,7 +968,7 @@ async def overnight_ledger(limit: Optional[int] = None, book: str = "paper"):
 
 
 @app.get("/api/overnight/summary")
-async def overnight_summary(book: str = "paper"):
+def overnight_summary(book: str = "paper"):
     """Cumulative PnL + WR + per-day breakdown + open-position count.
 
     `book` = 'paper' (Rs1L idealized) or 'live' (real fills).
@@ -982,7 +982,7 @@ async def overnight_summary(book: str = "paper"):
 
 
 @app.get("/api/overnight/paper-open")
-async def overnight_paper_open():
+def overnight_paper_open():
     """Paper book's OPEN positions: latest entry run's fires at Rs1L idealized."""
     try:
         return overnight_reader.get_paper_open()
@@ -991,7 +991,7 @@ async def overnight_paper_open():
 
 
 @app.get("/api/overnight/candidates")
-async def overnight_candidates(session_date: Optional[str] = None):
+def overnight_candidates(session_date: Optional[str] = None):
     """Pre-filtered candidate list for `session_date` (default: latest)."""
     try:
         return overnight_reader.get_candidates(session_date=session_date)
@@ -1000,7 +1000,7 @@ async def overnight_candidates(session_date: Optional[str] = None):
 
 
 @app.get("/api/overnight/fires/{session_date}")
-async def overnight_fires(session_date: str, book: str = "paper"):
+def overnight_fires(session_date: str, book: str = "paper"):
     """All trades that settled on `session_date` (YYYY-MM-DD).
 
     `book` = 'paper' (Rs1L idealized) or 'live' (real fills).
@@ -1014,7 +1014,7 @@ async def overnight_fires(session_date: str, book: str = "paper"):
 
 
 @app.get("/api/overnight/cron-health")
-async def overnight_cron_health():
+def overnight_cron_health():
     """Today's verify-exit + entry cron health (log existence + mtime + tail)."""
     try:
         return overnight_reader.get_cron_health()
@@ -1023,7 +1023,7 @@ async def overnight_cron_health():
 
 
 @app.get("/api/overnight/logs/{cron}/{session_date}")
-async def overnight_log(cron: str, session_date: str):
+def overnight_log(cron: str, session_date: str):
     """Full log content for a specific cron run.
 
     Args:
@@ -1048,7 +1048,7 @@ async def overnight_log(cron: str, session_date: str):
 # can render both.
 
 @app.get("/api/overnight/history/dates")
-async def overnight_history_dates():
+def overnight_history_dates():
     """List of archived dates (sorted newest first)."""
     try:
         return {"dates": get_overnight_historical().list_dates()}
@@ -1057,7 +1057,7 @@ async def overnight_history_dates():
 
 
 @app.get("/api/overnight/history/{archive_date}/pool")
-async def overnight_history_pool(archive_date: str):
+def overnight_history_pool(archive_date: str):
     """Archived slot pool snapshot for `archive_date`."""
     try:
         return get_overnight_historical().get_slot_pool(archive_date)
@@ -1066,7 +1066,7 @@ async def overnight_history_pool(archive_date: str):
 
 
 @app.get("/api/overnight/history/{archive_date}/ledger")
-async def overnight_history_ledger(archive_date: str, limit: Optional[int] = None,
+def overnight_history_ledger(archive_date: str, limit: Optional[int] = None,
                                    book: str = "paper"):
     """Archived ledger as-of EOD on `archive_date`.
 
@@ -1085,7 +1085,7 @@ async def overnight_history_ledger(archive_date: str, limit: Optional[int] = Non
 
 
 @app.get("/api/overnight/history/{archive_date}/summary")
-async def overnight_history_summary(archive_date: str, book: str = "paper"):
+def overnight_history_summary(archive_date: str, book: str = "paper"):
     """Cumulative summary + per-day breakdown as-of `archive_date`."""
     try:
         if book == "live":
@@ -1098,7 +1098,7 @@ async def overnight_history_summary(archive_date: str, book: str = "paper"):
 
 
 @app.get("/api/overnight/history/{archive_date}/candidates")
-async def overnight_history_candidates(archive_date: str):
+def overnight_history_candidates(archive_date: str):
     """Archived candidate list for `archive_date`."""
     try:
         return get_overnight_historical().get_candidates(archive_date)
@@ -1107,7 +1107,7 @@ async def overnight_history_candidates(archive_date: str):
 
 
 @app.get("/api/overnight/history/{archive_date}/logs/{cron}")
-async def overnight_history_log(archive_date: str, cron: str):
+def overnight_history_log(archive_date: str, cron: str):
     """Archived cron log for `archive_date`. cron ∈ {verify, entry}."""
     try:
         result = get_overnight_historical().get_log(archive_date, cron)
@@ -1126,13 +1126,13 @@ async def overnight_history_log(archive_date: str, cron: str):
 # renders for intraday, so the page reuses its tabs + charts. See swing_reader.py.
 
 @app.get("/api/swing/setups")
-async def swing_setups():
+def swing_setups():
     """The swing/delivery setups available for the historic-page filter."""
     return {"setups": SWING_SETUPS}
 
 
 @app.get("/api/swing/aggregate")
-async def swing_aggregate(setup: str = "all", date_from: str = None, date_to: str = None,
+def swing_aggregate(setup: str = "all", date_from: str = None, date_to: str = None,
                           book: str = "paper", regime: str = "current"):
     """Pooled swing-book performance (AggregateData shape).
 
@@ -1164,7 +1164,7 @@ async def swing_aggregate(setup: str = "all", date_from: str = None, date_to: st
 
 
 @app.get("/api/swing/regimes")
-async def swing_regimes(setup: str = "all"):
+def swing_regimes(setup: str = "all"):
     """Archived regimes available, for labelling the Archive tab.
 
     Returns [{regime, archived_on, setups, trades}], oldest first. Empty list
@@ -1177,7 +1177,7 @@ async def swing_regimes(setup: str = "all"):
 
 
 @app.get("/api/multiday/book")
-async def multiday_book():
+def multiday_book():
     """The live multi_day book: open (held, marked-to-market) + pending entries.
 
     Complements /api/swing/aggregate (settled PnL) — watches positions across the
