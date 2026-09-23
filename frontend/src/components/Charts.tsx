@@ -50,9 +50,11 @@ function labelIndices(n: number, innerWidth: number, minGap = 48): Set<number> {
   const step = Math.max(1, Math.ceil(minGap / perLabel));
   const out = new Set<number>();
   for (let i = 0; i < n; i += step) out.add(i);
-  // Show the last date, but not on top of the previous label.
-  if (n - 1 - Math.max(...out) >= step / 2) out.add(n - 1);
-  else { out.delete(Math.max(...out)); out.add(n - 1); }
+  // Always show the last date; if it would sit closer than one step to the
+  // previous label, replace that label rather than crowd it.
+  const last = Math.max(...out);
+  if (n - 1 - last < step) out.delete(last);
+  out.add(n - 1);
   return out;
 }
 
