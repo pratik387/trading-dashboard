@@ -41,6 +41,21 @@ interface DailyData {
   cumulative_pnl: number;
 }
 
+// Which x positions get a date label. Every point used to be labelled, so a
+// 4-month range at 11px collapsed into one unreadable smear. Keep the first,
+// the last, and every k-th in between, k chosen so labels are >= minGap px apart.
+function labelIndices(n: number, innerWidth: number, minGap = 48): Set<number> {
+  if (n <= 1) return new Set([0]);
+  const perLabel = innerWidth / (n - 1);
+  const step = Math.max(1, Math.ceil(minGap / perLabel));
+  const out = new Set<number>();
+  for (let i = 0; i < n; i += step) out.add(i);
+  // Show the last date, but not on top of the previous label.
+  if (n - 1 - Math.max(...out) >= step / 2) out.add(n - 1);
+  else { out.delete(Math.max(...out)); out.add(n - 1); }
+  return out;
+}
+
 interface SetupData {
   setup: string;
   pnl: number;
@@ -107,11 +122,14 @@ export function EquityCurveChart({ data }: { data: DailyData[] }) {
 
         {/* X-axis */}
         <line x1={margin.left} x2={width - margin.right} y1={height - margin.bottom} y2={height - margin.bottom} stroke="#d1d5db" />
-        {sortedData.map((d, i) => (
-          <text key={i} x={xScale(i)} y={height - margin.bottom + 16} textAnchor="middle" fontSize={11} fill="#6b7280">
-            {d.date.slice(5, 10)}
-          </text>
-        ))}
+        {(() => { const show = labelIndices(sortedData.length, innerWidth); return sortedData.map((d, i) => show.has(i) && (
+          <g key={i}>
+            <line x1={xScale(i)} x2={xScale(i)} y1={height - margin.bottom} y2={height - margin.bottom + 4} stroke="#d1d5db" />
+            <text x={xScale(i)} y={height - margin.bottom + 16} textAnchor="middle" fontSize={11} fill="#6b7280">
+              {d.date.slice(5, 10)}
+            </text>
+          </g>
+        )); })()}
 
         {/* Line */}
         <path d={pathD} fill="none" stroke="#3b82f6" strokeWidth={2} />
@@ -179,11 +197,14 @@ export function DailyPnLChart({ data }: { data: DailyData[] }) {
         ))}
 
         {/* X-axis labels */}
-        {sortedData.map((d, i) => (
-          <text key={i} x={xScale(i) + barWidth / 2} y={height - margin.bottom + 16} textAnchor="middle" fontSize={11} fill="#6b7280">
-            {d.date.slice(5, 10)}
-          </text>
-        ))}
+        {(() => { const show = labelIndices(sortedData.length, innerWidth); return sortedData.map((d, i) => show.has(i) && (
+          <g key={i}>
+            <line x1={xScale(i) + barWidth / 2} x2={xScale(i) + barWidth / 2} y1={height - margin.bottom} y2={height - margin.bottom + 4} stroke="#d1d5db" />
+            <text x={xScale(i) + barWidth / 2} y={height - margin.bottom + 16} textAnchor="middle" fontSize={11} fill="#6b7280">
+              {d.date.slice(5, 10)}
+            </text>
+          </g>
+        )); })()}
 
         {/* Bars */}
         {sortedData.map((d, i) => {
