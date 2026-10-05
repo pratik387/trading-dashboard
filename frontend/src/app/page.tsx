@@ -42,7 +42,10 @@ import {
   Play,
   Wifi,
   WifiOff,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
+import { useEntryChime } from "@/lib/entryChime";
 
 /**
  * Get HTTP URL for an instance's API server.
@@ -86,6 +89,11 @@ export default function HomePage() {
 
   // Track if we're using WebSocket (true) or HTTP polling fallback (false)
   const [useWebSocket, setUseWebSocket] = useState(true);
+
+  // Chime on a new entry. Works off the positions list whichever path fed it
+  // (WebSocket push or 5s polling), so it does not depend on the socket.
+  const positionSymbols = positions.map((p) => p.symbol);
+  const { enabled: chimeOn, toggle: toggleChime } = useEntryChime(positionSymbols, lastUpdated !== "");
 
   // Admin-related state
   const [tokenInput, setTokenInput] = useState("");
@@ -425,6 +433,20 @@ export default function HomePage() {
             />
             Auto-refresh
           </label>
+          <button
+            onClick={toggleChime}
+            className={cn(
+              "flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium border",
+              chimeOn
+                ? "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800"
+                : "bg-gray-100 text-gray-600 border-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:border-gray-600"
+            )}
+            title={chimeOn ? "Chime on new entry: ON (click to mute)" : "Chime on new entry: OFF (click to enable; plays a test chime)"}
+            aria-pressed={chimeOn}
+          >
+            {chimeOn ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
+            {chimeOn ? "Chime on" : "Chime off"}
+          </button>
           <button
             onClick={() => {
               loadInstances();
