@@ -381,6 +381,12 @@ export default function HomePage() {
     [historyConfigType]
   );
 
+  // Retired setups move to the archive section on the paper book only. The live
+  // book is real money: its headline must reconcile with the broker's P&L, so
+  // retired setups stay in it (badged). Archiving them hid HUHTAMAKI's -28.65k
+  // and showed live at +20.8k when the account was about -6k.
+  const archiveRetired = historyConfigType !== "live";
+
   useEffect(() => {
     fetchIntradayRegimes(historyConfigType).then(setSizeRegimes).catch(() => setSizeRegimes([]));
   }, [historyConfigType]);
@@ -490,7 +496,7 @@ export default function HomePage() {
               returns are comparable; rupees are not, so the two must not be added together.
             </div>
           </div>
-          <HistoryView family="intraday" fetcher={archiveFetcher} archiveRetired />
+          <HistoryView family="intraday" fetcher={archiveFetcher} archiveRetired={archiveRetired} />
         </div>
       )}
 
@@ -498,7 +504,7 @@ export default function HomePage() {
         <HistoryView
           family="intraday"
           fetcher={historyFetcher}
-          archiveRetired
+          archiveRetired={archiveRetired}
           headerExtra={
             <select
               value={historyConfigType}
