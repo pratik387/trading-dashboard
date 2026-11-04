@@ -171,9 +171,14 @@ class OvernightHistoricalReader:
                 "reserved_today": s.get("reserved_today"),
                 "expected_exit_date": s.get("expected_exit_date"),
             }
+            # The filled qty, as the engine's OvernightSlot.exit_qty() sells it.
+            # notional/fill is only the fallback for slots persisted before
+            # buy_qty existed: it read 33 for a 32-share RAJPALAYAM (2026-11-03).
             buy = s.get("buy_fill_price")
             notional = s.get("notional_inr")
-            if buy and notional:
+            if s.get("buy_qty"):
+                entry["qty"] = int(s["buy_qty"])
+            elif buy and notional:
                 entry["qty"] = int(round(notional / buy))
             active.append(entry)
 

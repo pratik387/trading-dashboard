@@ -137,3 +137,17 @@ def test_paper_open_cleared_once_reconstruction_settled(tmp_path):
     (tmp_path / "reports" / "overnight_slippage_2026-07-09.json").write_text("{}", encoding="utf-8")
     out = r.get_paper_open()
     assert out["settled"] is True and out["fires"] == []  # settled -> cleared
+
+
+def test_slot_qty_is_the_filled_qty(tmp_path):
+    """2026-11-03: notional/fill read 33 for a 32-share RAJPALAYAM; the slot's buy_qty is the truth."""
+    d = tmp_path / "state"
+    d.mkdir()
+    base = {"status": "t1_settling", "margin_inr": 25000.0, "notional_inr": 25000.0,
+            "expected_exit_date": "2026-11-04"}
+    (d / "overnight_slots.json").write_text(json.dumps({"max_slots": 2, "slots": [
+        dict(base, slot_id=1, symbol="NSE:RAJPALAYAM", buy_fill_price=760.0, buy_qty=32),
+        dict(base, slot_id=2, symbol="NSE:OLDSLOT", buy_fill_price=760.0),     # pre-buy_qty slot
+    ]}), encoding="utf-8")
+    qty = {s["symbol"]: s["qty"] for s in OvernightReader(tmp_path).get_slot_pool()["active_slots"]}
+    assert qty == {"NSE:RAJPALAYAM": 32, "NSE:OLDSLOT": 33}
