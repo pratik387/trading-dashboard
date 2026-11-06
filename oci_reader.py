@@ -11,6 +11,8 @@ from typing import List, Dict, Iterator, Optional
 from datetime import datetime
 import oci
 
+from oci_list import list_all
+
 
 class OCIDataReader:
     """
@@ -70,14 +72,7 @@ class OCIDataReader:
         Returns:
             List of config type names like ['fixed', 'relative', '1year']
         """
-        response = self.os_client.list_objects(
-            namespace_name=self.namespace,
-            bucket_name=self.bucket_name,
-            delimiter='/',
-            limit=100
-        )
-
-        prefixes = response.data.prefixes or []
+        prefixes, _ = list_all(self.os_client, self.namespace, self.bucket_name, delimiter='/')
         return [p.rstrip('/') for p in prefixes]
 
     def list_runs(self, config_type: str = 'fixed', limit: int = 50) -> List[Dict]:
@@ -91,15 +86,8 @@ class OCIDataReader:
         Returns:
             List of dicts with run_id, config_type, timestamp info
         """
-        response = self.os_client.list_objects(
-            namespace_name=self.namespace,
-            bucket_name=self.bucket_name,
-            prefix=f"{config_type}/",
-            delimiter='/',
-            limit=1000
-        )
-
-        prefixes = response.data.prefixes or []
+        prefixes, _ = list_all(self.os_client, self.namespace, self.bucket_name,
+                               prefix=f"{config_type}/", delimiter='/')
         runs = []
 
         for prefix in prefixes:
@@ -409,15 +397,11 @@ class OCIDataReader:
 
     def list_files(self, config_type: str, run_id: str) -> List[str]:
         """List all files in a run folder"""
-        response = self.os_client.list_objects(
-            namespace_name=self.namespace,
-            bucket_name=self.bucket_name,
-            prefix=f"{config_type}/{run_id}/",
-            limit=100
-        )
+        _, objects = list_all(self.os_client, self.namespace, self.bucket_name,
+                              prefix=f"{config_type}/{run_id}/")
 
         files = []
-        for obj in response.data.objects or []:
+        for obj in objects:
             filename = obj.name.split('/')[-1]
             if filename:
                 files.append(filename)

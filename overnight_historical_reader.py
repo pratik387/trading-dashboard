@@ -28,6 +28,8 @@ from typing import Dict, List, Optional
 
 import oci
 
+from oci_list import list_all
+
 
 _SETUP_NAME = "close_dn_overnight_long"
 _DEFAULT_BUCKET = "paper-trading-logs"
@@ -68,14 +70,8 @@ class OvernightHistoricalReader:
 
     def list_dates(self) -> List[str]:
         """Return sorted descending list of archived dates (newest first)."""
-        response = self.os_client.list_objects(
-            namespace_name=self.namespace,
-            bucket_name=self.bucket_name,
-            prefix=_ARCHIVE_PREFIX,
-            delimiter="/",
-            limit=1000,
-        )
-        prefixes = response.data.prefixes or []
+        prefixes, _ = list_all(self.os_client, self.namespace, self.bucket_name,
+                               prefix=_ARCHIVE_PREFIX, delimiter="/")
         # Each prefix is like "overnight/close_dn_overnight_long/2026-06-05/"
         dates = []
         for p in prefixes:
